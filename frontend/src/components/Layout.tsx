@@ -13,6 +13,7 @@ export function Layout({ user, onLogout, children }: Props) {
   const navItems = [
     { path: "/", label: "Ask Me Anything" },
     ...(user ? [{ path: "/documents", label: "Your Documents" }] : []),
+    { path: "/about", label: "About" },
     ...(user?.role === "admin" ? [{ path: "/admin", label: "Admin" }] : []),
   ];
 
@@ -34,6 +35,12 @@ export function Layout({ user, onLogout, children }: Props) {
           </nav>
         </div>
         <div className="header-right">
+          <Link
+            to="/resume"
+            className={`header-resume-link${location.pathname === "/resume" ? " active" : ""}`}
+          >
+            My Resume
+          </Link>
           {user ? (
             <>
               <span className="user-name">{user.display_name || user.github_username || "Guest"}</span>

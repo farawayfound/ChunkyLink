@@ -6,6 +6,8 @@ import { Login } from "./pages/Login";
 import { AskMeAnything } from "./pages/AskMeAnything";
 import { YourDocuments } from "./pages/YourDocuments";
 import { AdminPanel } from "./pages/AdminPanel";
+import { About } from "./pages/About";
+import { MyResume } from "./pages/MyResume";
 
 export default function App() {
   const { user, loading, githubEnabled, loginInvite, logout } = useAuth();
@@ -15,6 +17,8 @@ export default function App() {
       <Layout user={user} onLogout={logout}>
         <Routes>
           <Route path="/" element={<AskMeAnything />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/resume" element={<MyResume />} />
           <Route
             path="/login"
             element={
