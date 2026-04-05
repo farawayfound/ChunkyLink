@@ -5,11 +5,12 @@ import { UploadZone } from "../components/UploadZone";
 import { DocumentCard } from "../components/DocumentCard";
 import { ChatMessage } from "../components/ChatMessage";
 import { ChatInput } from "../components/ChatInput";
+import { ChatProgress } from "../components/ChatProgress";
 
 export function YourDocuments() {
   const { documents, loading, indexStatus, refresh, upload, remove, startIndex, refreshIndex } =
     useDocuments();
-  const { messages, streaming, send, clear } = useChat("/chat/documents");
+  const { messages, streaming, phase, send, clear } = useChat("/chat/documents");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,6 +71,7 @@ export function YourDocuments() {
           {messages.map((msg, i) => (
             <ChatMessage key={i} message={msg} />
           ))}
+          {streaming && <ChatProgress phase={phase} />}
           <div ref={bottomRef} />
         </div>
 

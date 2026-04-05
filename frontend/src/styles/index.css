@@ -223,6 +223,90 @@ body {
 .chat-input textarea:focus { outline: none; border-color: var(--primary); }
 .chat-input .btn { align-self: flex-end; }
 
+/* Chat progress indicator */
+.chat-progress {
+  display: flex;
+  gap: 20px;
+  padding: 12px 0;
+  flex-wrap: wrap;
+}
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  opacity: 0.4;
+  transition: opacity 0.2s, color 0.2s;
+}
+.progress-step.done {
+  opacity: 0.7;
+  color: var(--success);
+}
+.progress-step.active {
+  opacity: 1;
+  color: var(--primary);
+}
+.progress-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.progress-step.active .progress-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.7); }
+}
+
+/* Collapsible thinking block */
+.thinking-block {
+  margin: 4px 0 8px;
+}
+.thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.thinking-toggle:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+.thinking-arrow {
+  display: inline-block;
+  font-size: 9px;
+  transition: transform 0.15s;
+}
+.thinking-arrow.open {
+  transform: rotate(90deg);
+}
+.thinking-content {
+  margin-top: 6px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 /* Documents page */
 .documents-page {
   display: grid;

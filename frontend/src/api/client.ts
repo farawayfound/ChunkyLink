@@ -22,10 +22,16 @@ export const logout = () => request<any>("/auth/logout", { method: "POST" });
 // Chat
 export const getChatHealth = () => request<any>("/chat/health");
 
+export interface ChatStreamEvent {
+  text?: string;
+  thinking?: string;
+  phase?: string;
+}
+
 export async function* streamChat(
   endpoint: "/chat/ask" | "/chat/documents",
   body: Record<string, unknown>,
-): AsyncGenerator<string> {
+): AsyncGenerator<ChatStreamEvent> {
   const res = await fetch(`${BASE}${endpoint}`, {
     method: "POST",
     credentials: "include",
@@ -59,7 +65,7 @@ export async function* streamChat(
         if (data === "[DONE]") return;
         try {
           const parsed = JSON.parse(data);
-          if (parsed.text) yield parsed.text;
+          yield parsed as ChatStreamEvent;
         } catch {
           // skip
         }
@@ -117,6 +123,10 @@ export const setOllamaModel = (name: string) =>
   request<any>("/admin/ollama/model", { method: "PUT", body: JSON.stringify({ name }) });
 export const deleteOllamaModel = (name: string) =>
   request<any>("/admin/ollama/delete", { method: "POST", body: JSON.stringify({ name }) });
+export const loadOllamaModel = (name: string) =>
+  request<any>("/admin/ollama/load", { method: "POST", body: JSON.stringify({ name }) });
+export const unloadOllamaModel = (name: string) =>
+  request<any>("/admin/ollama/unload", { method: "POST", body: JSON.stringify({ name }) });
 
 export async function* streamOllamaPull(name: string): AsyncGenerator<any> {
   const res = await fetch(`${BASE}/admin/ollama/pull`, {

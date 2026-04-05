@@ -2,10 +2,11 @@ import { useRef, useEffect, useState } from "react";
 import { useChat } from "../hooks/useChat";
 import { ChatMessage } from "../components/ChatMessage";
 import { ChatInput } from "../components/ChatInput";
+import { ChatProgress } from "../components/ChatProgress";
 import { getChatSuggestions } from "../api/client";
 
 export function AskMeAnything() {
-  const { messages, streaming, send, clear } = useChat("/chat/ask");
+  const { messages, streaming, phase, send, clear } = useChat("/chat/ask");
   const bottomRef = useRef<HTMLDivElement>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
@@ -53,6 +54,7 @@ export function AskMeAnything() {
         {messages.map((msg, i) => (
           <ChatMessage key={i} message={msg} />
         ))}
+        {streaming && <ChatProgress phase={phase} />}
         <div ref={bottomRef} />
       </div>
 

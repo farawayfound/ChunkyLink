@@ -14,6 +14,7 @@ from backend.database import get_db
 from backend.chat.ollama_client import (
     health_check, list_models, pull_model, delete_model,
     list_loaded_models, ensure_single_model_loaded,
+    preload_model, unload_model,
     get_model_context_window, get_inference_stats,
 )
 from backend.config import get_settings
@@ -40,6 +41,15 @@ def _run_demo_index():
         build_main(src_dir=src, out_dir=out)
         _demo_job = {"status": "complete", "error": None}
         log_event("demo_index_complete")
+
+        # Generate LLM-powered suggested questions post-index
+        try:
+            import asyncio
+            from backend.chat.suggestions import generate_and_save_suggestions
+            asyncio.run(generate_and_save_suggestions(get_demo_index_dir()))
+            log_event("demo_suggestions_generated")
+        except Exception as e:
+            logging.warning(f"Suggestion generation failed (non-fatal): {e}")
     except Exception as e:
         logging.exception("Demo KB indexing failed")
         _demo_job = {"status": "failed", "error": str(e)}
@@ -246,6 +256,41 @@ async def admin_ollama_delete_model(request: Request, user: dict = Depends(requi
         return result
     except Exception as e:
         raise HTTPException(500, f"Failed to delete model: {e}")
+
+
+@router.post("/ollama/load")
+async def admin_ollama_load_model(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_admin),
+):
+    """Load a model into Ollama memory (unloads all others first)."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(400, "Model name is required")
+    settings = get_settings()
+    settings.OLLAMA_MODEL = name
+    log_event("ollama_model_loaded", user_id=user["user_id"], model=name)
+    background_tasks.add_task(ensure_single_model_loaded, name)
+    return {"status": "loading", "name": name}
+
+
+@router.post("/ollama/unload")
+async def admin_ollama_unload_model(
+    request: Request, user: dict = Depends(require_admin),
+):
+    """Unload a model from Ollama memory."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(400, "Model name is required")
+    try:
+        await unload_model(name)
+        log_event("ollama_model_unloaded", user_id=user["user_id"], model=name)
+        return {"status": "unloaded", "name": name}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to unload model: {e}")
 
 
 # ── Demo KB Management ────────────────────────────────────────────────────────

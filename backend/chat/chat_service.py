@@ -14,6 +14,70 @@ from backend.chat.safeguard import (
 from backend.logger import log_event
 
 
+class _ThinkParser:
+    """Streaming parser that separates <think>...</think> blocks from response text.
+
+    Yields (type, text) tuples where type is "thinking" or "text".
+    Handles tags split across multiple chunks.
+    """
+
+    def __init__(self):
+        self._in_think = False
+        self._buf = ""
+
+    def feed(self, chunk: str):
+        """Feed a chunk and yield (type, text) pairs."""
+        self._buf += chunk
+        while self._buf:
+            if self._in_think:
+                end = self._buf.find("</think>")
+                if end == -1:
+                    # Check for partial closing tag at the end
+                    for i in range(1, min(len("</think>"), len(self._buf) + 1)):
+                        if self._buf.endswith("</think>"[:i]):
+                            # Hold back the potential partial tag
+                            emit = self._buf[:-i]
+                            if emit:
+                                yield ("thinking", emit)
+                            self._buf = self._buf[-i:]
+                            return
+                    # No partial tag, emit all as thinking
+                    yield ("thinking", self._buf)
+                    self._buf = ""
+                else:
+                    # Found closing tag
+                    thinking_text = self._buf[:end]
+                    if thinking_text:
+                        yield ("thinking", thinking_text)
+                    self._buf = self._buf[end + len("</think>"):]
+                    self._in_think = False
+            else:
+                start = self._buf.find("<think>")
+                if start == -1:
+                    # Check for partial opening tag at the end
+                    for i in range(1, min(len("<think>"), len(self._buf) + 1)):
+                        if self._buf.endswith("<think>"[:i]):
+                            emit = self._buf[:-i]
+                            if emit:
+                                yield ("text", emit)
+                            self._buf = self._buf[-i:]
+                            return
+                    yield ("text", self._buf)
+                    self._buf = ""
+                else:
+                    if start > 0:
+                        yield ("text", self._buf[:start])
+                    self._buf = self._buf[start + len("<think>"):]
+                    self._in_think = True
+
+    def flush(self):
+        """Flush remaining buffer."""
+        if self._buf:
+            kind = "thinking" if self._in_think else "text"
+            yield (kind, self._buf)
+            self._buf = ""
+
+
 def _extract_terms(query: str) -> list[str]:
     """Extract search terms from a natural language query."""
     stop = {
@@ -76,11 +140,28 @@ async def ask_stream_events(
 
     temperature = settings.CHAT_TEMPERATURE
     max_tokens = settings.CHAT_MAX_TOKENS
+    parser = _ThinkParser()
+    emitted_answering = False
     async for chunk in generate_stream(
         prompt=prompt, system=system, model=model,
         temperature=temperature, max_tokens=max_tokens,
     ):
-        yield {"text": chunk}
+        for kind, text in parser.feed(chunk):
+            if kind == "thinking":
+                yield {"thinking": text}
+            else:
+                if not emitted_answering:
+                    yield {"phase": "answering"}
+                    emitted_answering = True
+                yield {"text": text}
+    for kind, text in parser.flush():
+        if kind == "thinking":
+            yield {"thinking": text}
+        else:
+            if not emitted_answering:
+                yield {"phase": "answering"}
+                emitted_answering = True
+            yield {"text": text}
 
 
 async def ask(
@@ -180,11 +261,28 @@ async def ask_with_history_stream_events(
             chat_messages.append({"role": msg["role"], "content": msg["content"]})
 
     settings = get_settings()
+    parser = _ThinkParser()
+    emitted_answering = False
     async for chunk in chat_stream(
         messages=chat_messages, model=model,
         temperature=settings.CHAT_TEMPERATURE, max_tokens=settings.CHAT_MAX_TOKENS,
     ):
-        yield {"text": chunk}
+        for kind, text in parser.feed(chunk):
+            if kind == "thinking":
+                yield {"thinking": text}
+            else:
+                if not emitted_answering:
+                    yield {"phase": "answering"}
+                    emitted_answering = True
+                yield {"text": text}
+    for kind, text in parser.flush():
+        if kind == "thinking":
+            yield {"thinking": text}
+        else:
+            if not emitted_answering:
+                yield {"phase": "answering"}
+                emitted_answering = True
+            yield {"text": text}
 
 
 async def ask_with_history(

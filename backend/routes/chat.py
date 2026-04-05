@@ -11,6 +11,7 @@ from backend.config import get_settings
 from backend.auth.middleware import get_current_user
 from backend.chat.chat_service import ask_stream_events, ask_with_history_stream_events
 from backend.chat.ollama_client import health_check, list_models
+from backend.chat.suggestions import load_saved_suggestions
 from backend.storage import get_user_index_dir
 from backend.logger import log_event
 
@@ -213,13 +214,22 @@ async def chat_search(request: Request):
 
 @router.get("/suggestions")
 async def chat_suggestions():
-    """Generate dynamic suggested questions from the demo KB index.
+    """Return suggested questions — prefers LLM-generated, falls back to templates.
 
-    Extracts entities, tags, and categories from indexed chunks
-    and builds a pool of relevant questions.
+    LLM-generated suggestions are created after demo indexing using a larger
+    model and saved to suggestions.json.
     """
     settings = get_settings()
     kb_dir = settings.INDEXES_DIR / "demo"
+
+    # Prefer LLM-generated suggestions if available
+    saved = load_saved_suggestions(kb_dir)
+    if saved:
+        shuffled = list(saved)
+        random.shuffle(shuffled)
+        return {"suggestions": shuffled[:15]}
+
+    # Fallback: template-based generation from chunk metadata
     chunks_file = kb_dir / "detail" / "chunks.jsonl"
 
     if not chunks_file.exists():
@@ -261,7 +271,6 @@ async def chat_suggestions():
 
     questions: list[str] = []
 
-    # Generate questions from extracted entities
     for org in list(orgs)[:6]:
         questions.append(random.choice(_ORG_TEMPLATES).format(org))
     for prod in list(products)[:4]:
@@ -269,13 +278,11 @@ async def chat_suggestions():
     for topic in list(topics)[:4]:
         questions.append(random.choice(_TOPIC_TEMPLATES).format(topic))
 
-    # Add category-based questions
     for cat in categories:
         cat_qs = _CATEGORY_QUESTIONS.get(cat, [])
         questions.extend(cat_qs)
     questions.extend(_CATEGORY_QUESTIONS.get("general", []))
 
-    # Deduplicate and shuffle
     seen: set[str] = set()
     unique: list[str] = []
     for q in questions:

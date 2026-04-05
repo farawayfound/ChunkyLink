@@ -26,7 +26,7 @@ class Settings:
 
         # ── Ollama ──
         self.OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+        self.OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "nemotron-3-nano:4b")
         self.OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
         self.OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
 
@@ -88,6 +88,9 @@ class Settings:
 
         # ── Search ──
         self.DEFAULT_SEARCH_DOMAINS = ["experience", "skills", "education"]
+
+        # ── Suggestions ──
+        self.SUGGESTION_MODEL = os.getenv("SUGGESTION_MODEL", "lfm2:24b-a2b")
 
         # ── Chat ──
         self.RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "15.0"))

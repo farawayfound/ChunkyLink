@@ -22,6 +22,7 @@ export interface Document {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  thinking?: string;
 }
 
 export interface SearchResult {

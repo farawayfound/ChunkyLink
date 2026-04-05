@@ -7,8 +7,9 @@ import {
   deactivateInviteCode,
   getAdminActivity,
   getAdminOllama,
-  setOllamaModel,
   deleteOllamaModel,
+  loadOllamaModel,
+  unloadOllamaModel,
   streamOllamaPull,
   getDemoDocuments,
   deleteDemoDocument,
@@ -254,8 +255,8 @@ function OllamaTab() {
   const [pullStatus, setPullStatus] = useState("");
   const [pulling, setPulling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Name of the model that was just selected but may not be in memory yet
   const [loadingModel, setLoadingModel] = useState<string | null>(null);
+  const [unloadingModel, setUnloadingModel] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -266,12 +267,10 @@ function OllamaTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Stop polling on unmount
   useEffect(() => {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
-  // Poll /admin/ollama every 2 s after a model change until it appears in loaded_names
   const startLoadingPoll = (name: string) => {
     if (pollRef.current) clearInterval(pollRef.current);
     setLoadingModel(name);
@@ -290,14 +289,26 @@ function OllamaTab() {
     }, 2000);
   };
 
-  const handleSetModel = async (name: string) => {
+  const handleLoad = async (name: string) => {
     setError(null);
     try {
-      await setOllamaModel(name);
-      setData((d: any) => ({ ...d, configured_model: name }));
+      await loadOllamaModel(name);
       startLoadingPoll(name);
     } catch (err: any) {
-      setError(err.message || "Failed to set model");
+      setError(err.message || "Failed to load model");
+    }
+  };
+
+  const handleUnload = async (name: string) => {
+    setError(null);
+    setUnloadingModel(name);
+    try {
+      await unloadOllamaModel(name);
+      await load();
+    } catch (err: any) {
+      setError(err.message || "Failed to unload model");
+    } finally {
+      setUnloadingModel(null);
     }
   };
 
@@ -353,6 +364,8 @@ function OllamaTab() {
     ? `${contextUsed.toLocaleString()} / ${Math.round(contextWindow / 1000)}k`
     : contextUsed > 0 ? `${contextUsed.toLocaleString()} tokens` : "—";
 
+  const activeModel = loadedNames.length > 0 ? loadedNames[0] : null;
+
   return (
     <div>
       {error && (
@@ -374,25 +387,22 @@ function OllamaTab() {
         </div>
       </div>
 
-      {/* Active model selector */}
+      {/* Active model monitor */}
       <div style={{ margin: "1.5rem 0" }}>
         <h4 style={{ marginBottom: "0.5rem" }}>Active Model for Inference</h4>
-        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-          <select
-            value={configuredModel}
-            onChange={(e) => handleSetModel(e.target.value)}
-            style={{ padding: "8px 12px", background: "var(--bg-card)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "6px", minWidth: "250px" }}
-          >
-            {data.models?.map((m: any) => (
-              <option key={m.name} value={m.name}>{m.name}</option>
-            ))}
-          </select>
-          {loadingModel === configuredModel ? (
-            <span style={{ color: "#f59e0b", fontSize: "0.85rem" }}>Loading into memory…</span>
-          ) : loadedNames.includes(configuredModel) ? (
-            <span style={{ color: "var(--success)", fontSize: "0.85rem" }}>Ready</span>
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", padding: "10px 14px", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "6px" }}>
+          {loadingModel ? (
+            <>
+              <span style={{ fontWeight: 600 }}>{loadingModel}</span>
+              <span style={{ color: "#f59e0b", fontSize: "0.85rem" }}>Loading into memory...</span>
+            </>
+          ) : activeModel ? (
+            <>
+              <span style={{ fontWeight: 600 }}>{activeModel}</span>
+              <span style={{ color: "var(--success)", fontSize: "0.85rem" }}>Loaded</span>
+            </>
           ) : (
-            <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Not yet loaded</span>
+            <span style={{ color: "var(--text-muted)" }}>No model loaded</span>
           )}
         </div>
       </div>
@@ -418,36 +428,62 @@ function OllamaTab() {
         </div>
       </div>
 
-      {/* Model list with remove button */}
+      {/* Model list with load/unload/remove buttons */}
       {data.models?.length > 0 && (
         <>
           <h4 style={{ marginBottom: "0.5rem" }}>Installed Models</h4>
           <table className="admin-table">
-            <thead><tr><th>Model</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+            <thead><tr><th>Model</th><th>Size</th><th>Modified</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {data.models.map((m: any) => {
-                const isConfigured = m.name === configuredModel;
                 const isLoaded = loadedNames.includes(m.name);
                 const isCurrentlyLoading = loadingModel === m.name;
+                const isCurrentlyUnloading = unloadingModel === m.name;
                 return (
                   <tr key={m.name}>
-                    <td>
-                      {m.name}
-                      {isCurrentlyLoading && (
-                        <span style={{ marginLeft: "0.5rem", color: "#f59e0b", fontSize: "0.75rem" }}>loading…</span>
-                      )}
-                      {!isCurrentlyLoading && isLoaded && (
-                        <span style={{ marginLeft: "0.5rem", color: "var(--success)", fontSize: "0.75rem" }}>active</span>
-                      )}
-                    </td>
+                    <td style={{ fontWeight: isLoaded ? 600 : 400 }}>{m.name}</td>
                     <td>{m.size ? `${(m.size / 1e9).toFixed(1)} GB` : "-"}</td>
                     <td>{m.modified_at ? new Date(m.modified_at).toLocaleDateString() : "-"}</td>
                     <td>
+                      {isCurrentlyLoading && (
+                        <span style={{ color: "#f59e0b", fontSize: "0.8rem" }}>loading...</span>
+                      )}
+                      {isCurrentlyUnloading && (
+                        <span style={{ color: "#f59e0b", fontSize: "0.8rem" }}>unloading...</span>
+                      )}
+                      {!isCurrentlyLoading && !isCurrentlyUnloading && isLoaded && (
+                        <span style={{ color: "var(--success)", fontSize: "0.8rem" }}>active</span>
+                      )}
+                      {!isCurrentlyLoading && !isCurrentlyUnloading && !isLoaded && (
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>idle</span>
+                      )}
+                    </td>
+                    <td style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end" }}>
+                      {!isLoaded && !isCurrentlyLoading && (
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={() => handleLoad(m.name)}
+                          disabled={!!loadingModel}
+                          title="Load into memory for inference"
+                        >
+                          Load
+                        </button>
+                      )}
+                      {isLoaded && !isCurrentlyUnloading && (
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => handleUnload(m.name)}
+                          title="Unload from memory"
+                          style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text)" }}
+                        >
+                          Unload
+                        </button>
+                      )}
                       <button
                         className="btn btn-sm btn-danger"
                         onClick={() => handleDelete(m.name)}
-                        disabled={isConfigured}
-                        title={isConfigured ? "Cannot remove the active model" : "Remove this model"}
+                        disabled={isLoaded}
+                        title={isLoaded ? "Unload the model first" : "Remove this model"}
                       >
                         Remove
                       </button>

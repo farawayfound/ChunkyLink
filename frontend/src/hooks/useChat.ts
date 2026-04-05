@@ -2,9 +2,12 @@ import { useState, useCallback, useRef } from "react";
 import { streamChat } from "../api/client";
 import type { ChatMessage } from "../types";
 
+export type ChatPhase = "idle" | "sending" | "searching" | "thinking" | "answering";
+
 export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask") {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [phase, setPhase] = useState<ChatPhase>("idle");
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
@@ -12,8 +15,9 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
       const userMsg: ChatMessage = { role: "user", content: query };
       setMessages((prev) => [...prev, userMsg]);
       setStreaming(true);
+      setPhase("sending");
 
-      const assistantMsg: ChatMessage = { role: "assistant", content: "" };
+      const assistantMsg: ChatMessage = { role: "assistant", content: "", thinking: "" };
       setMessages((prev) => [...prev, assistantMsg]);
 
       try {
@@ -25,15 +29,36 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
           }));
         }
 
-        for await (const chunk of streamChat(endpoint, body)) {
-          setMessages((prev) => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
-            if (last.role === "assistant") {
-              updated[updated.length - 1] = { ...last, content: last.content + chunk };
-            }
-            return updated;
-          });
+        for await (const event of streamChat(endpoint, body)) {
+          if (event.phase) {
+            if (event.phase === "search") setPhase("searching");
+            else if (event.phase === "generate") setPhase("thinking");
+            else if (event.phase === "answering") setPhase("answering");
+          }
+          if (event.thinking) {
+            setMessages((prev) => {
+              const updated = [...prev];
+              const last = updated[updated.length - 1];
+              if (last.role === "assistant") {
+                updated[updated.length - 1] = {
+                  ...last,
+                  thinking: (last.thinking || "") + event.thinking,
+                };
+              }
+              return updated;
+            });
+          }
+          if (event.text) {
+            setPhase("answering");
+            setMessages((prev) => {
+              const updated = [...prev];
+              const last = updated[updated.length - 1];
+              if (last.role === "assistant") {
+                updated[updated.length - 1] = { ...last, content: last.content + event.text };
+              }
+              return updated;
+            });
+          }
         }
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
@@ -53,6 +78,7 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
         });
       } finally {
         setStreaming(false);
+        setPhase("idle");
       }
     },
     [endpoint, messages],
@@ -60,7 +86,8 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
 
   const clear = useCallback(() => {
     setMessages([]);
+    setPhase("idle");
   }, []);
 
-  return { messages, streaming, send, clear };
+  return { messages, streaming, phase, send, clear };
 }
