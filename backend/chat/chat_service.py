@@ -19,15 +19,33 @@ class _ThinkParser:
 
     Yields (type, text) tuples where type is "thinking" or "text".
     Handles tags split across multiple chunks.
+
+    Many reasoning models (e.g. nemotron-nano, deepseek-r1) start thinking
+    immediately WITHOUT an opening <think> tag — they only emit </think>
+    when done. This parser defaults to thinking mode and treats everything
+    before the first </think> as thinking content.
     """
 
     def __init__(self):
-        self._in_think = False
+        self._in_think = True       # assume thinking starts immediately
+        self._saw_close = False      # tracks if we ever see </think>
         self._buf = ""
+        self._first_chunk = True     # strip optional leading <think> tag
 
     def feed(self, chunk: str):
         """Feed a chunk and yield (type, text) pairs."""
         self._buf += chunk
+
+        # Strip an optional leading <think> or <think>\n on the very first content
+        if self._first_chunk and self._buf.strip():
+            self._first_chunk = False
+            stripped = self._buf.lstrip()
+            if stripped.startswith("<think>"):
+                self._buf = stripped[len("<think>"):]
+                # Also strip a single newline right after the tag
+                if self._buf.startswith("\n"):
+                    self._buf = self._buf[1:]
+
         while self._buf:
             if self._in_think:
                 end = self._buf.find("</think>")
@@ -35,33 +53,30 @@ class _ThinkParser:
                     # Check for partial closing tag at the end
                     for i in range(1, min(len("</think>"), len(self._buf) + 1)):
                         if self._buf.endswith("</think>"[:i]):
-                            # Hold back the potential partial tag
                             emit = self._buf[:-i]
                             if emit:
                                 yield ("thinking", emit)
                             self._buf = self._buf[-i:]
                             return
-                    # No partial tag, emit all as thinking
+                    # No partial tag — emit all as thinking
                     yield ("thinking", self._buf)
                     self._buf = ""
                 else:
-                    # Found closing tag
+                    # Found </think>
+                    self._saw_close = True
                     thinking_text = self._buf[:end]
                     if thinking_text:
                         yield ("thinking", thinking_text)
                     self._buf = self._buf[end + len("</think>"):]
+                    # Strip a single newline right after </think>
+                    if self._buf.startswith("\n"):
+                        self._buf = self._buf[1:]
                     self._in_think = False
             else:
+                # After </think> — everything is response text.
+                # Also handle a second <think> block (unlikely but safe).
                 start = self._buf.find("<think>")
                 if start == -1:
-                    # Check for partial opening tag at the end
-                    for i in range(1, min(len("<think>"), len(self._buf) + 1)):
-                        if self._buf.endswith("<think>"[:i]):
-                            emit = self._buf[:-i]
-                            if emit:
-                                yield ("text", emit)
-                            self._buf = self._buf[-i:]
-                            return
                     yield ("text", self._buf)
                     self._buf = ""
                 else:
@@ -71,10 +86,18 @@ class _ThinkParser:
                     self._in_think = True
 
     def flush(self):
-        """Flush remaining buffer."""
+        """Flush remaining buffer.
+
+        If we never saw </think>, the model didn't use thinking at all —
+        emit everything as normal text so non-reasoning models work fine.
+        """
         if self._buf:
-            kind = "thinking" if self._in_think else "text"
-            yield (kind, self._buf)
+            if self._in_think and not self._saw_close:
+                # Never saw </think> — model doesn't use thinking, emit as text
+                yield ("text", self._buf)
+            else:
+                kind = "thinking" if self._in_think else "text"
+                yield (kind, self._buf)
             self._buf = ""
 
 
