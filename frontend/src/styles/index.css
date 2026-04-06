@@ -318,11 +318,17 @@ body {
   border-radius: var(--radius);
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text-muted);
+  color: rgba(139, 143, 163, 0.55);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 300px;
   overflow-y: auto;
+}
+.thinking-content.thinking-live {
+  color: rgba(139, 143, 163, 0.7);
+  border-color: rgba(99, 102, 241, 0.25);
+  background: rgba(26, 29, 39, 0.8);
+  font-style: italic;
 }
 
 /* Documents page */

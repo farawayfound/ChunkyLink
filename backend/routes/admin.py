@@ -31,28 +31,35 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 def _run_demo_index():
-    """Run demo KB indexing in background thread."""
+    """Run demo KB indexing in background thread with granular progress tracking."""
     global _demo_job
     try:
-        _demo_job = {"status": "running", "error": None}
+        # Phase 1: Indexing documents
+        _demo_job = {"status": "running", "step": "indexing", "detail": "Building document index", "error": None}
         from backend.indexers.build_index import main as build_main
         src = str(get_demo_upload_dir())
         out = str(get_demo_index_dir())
         build_main(src_dir=src, out_dir=out)
-        _demo_job = {"status": "complete", "error": None}
         log_event("demo_index_complete")
 
-        # Generate LLM-powered suggested questions post-index
+        # Phase 2+3: Generate and validate suggested questions
+        def _progress_cb(step: str, detail: str):
+            global _demo_job
+            _demo_job = {"status": "running", "step": step, "detail": detail, "error": None}
+
         try:
             import asyncio
             from backend.chat.suggestions import generate_and_save_suggestions
-            asyncio.run(generate_and_save_suggestions(get_demo_index_dir()))
+            _demo_job = {"status": "running", "step": "generating", "detail": "Generating suggested questions", "error": None}
+            asyncio.run(generate_and_save_suggestions(get_demo_index_dir(), progress_cb=_progress_cb))
             log_event("demo_suggestions_generated")
         except Exception as e:
             logging.warning(f"Suggestion generation failed (non-fatal): {e}")
+
+        _demo_job = {"status": "complete", "step": "complete", "detail": None, "error": None}
     except Exception as e:
         logging.exception("Demo KB indexing failed")
-        _demo_job = {"status": "failed", "error": str(e)}
+        _demo_job = {"status": "failed", "step": "failed", "detail": None, "error": str(e)}
         log_event("demo_index_failed", error=str(e))
 
 

@@ -652,21 +652,54 @@ function DemoKBTab() {
           onClick={handleBuild}
           disabled={jobStatus === "running" || docs.length === 0}
         >
-          {jobStatus === "running" ? "Indexing…" : "Build Index"}
+          {jobStatus === "running" ? "Building…" : "Build Index"}
         </button>
         <span style={{
           color: jobStatus === "complete" ? "var(--success)"
             : jobStatus === "failed" ? "var(--danger)"
-            : jobStatus === "running" ? "var(--warning)"
+            : jobStatus === "running" ? "#f59e0b"
             : "var(--text-muted)",
           fontSize: "0.9rem",
         }}>
           {jobStatus === "idle" && "Not indexed"}
-          {jobStatus === "running" && "Indexing in progress…"}
           {jobStatus === "complete" && `Index up to date — ${totalChunks} chunks`}
           {jobStatus === "failed" && `Failed: ${status.job?.error || "unknown error"}`}
         </span>
       </div>
+
+      {/* Granular build progress */}
+      {jobStatus === "running" && (() => {
+        const step = status.job?.step || "indexing";
+        const detail = status.job?.detail || "";
+        const steps = [
+          { key: "indexing", label: "Indexing documents" },
+          { key: "generating", label: "Generating questions" },
+          { key: "validating", label: "Validating questions" },
+        ];
+        const activeIdx = steps.findIndex((s) => s.key === step);
+        return (
+          <div style={{ marginBottom: "1.5rem", padding: "12px 16px", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "8px" }}>
+            <div style={{ display: "flex", gap: "20px", marginBottom: detail ? "8px" : 0 }}>
+              {steps.map((s, i) => (
+                <div key={s.key} style={{
+                  display: "flex", alignItems: "center", gap: "6px", fontSize: "13px",
+                  color: i < activeIdx ? "var(--success)" : i === activeIdx ? "#f59e0b" : "var(--text-muted)",
+                  opacity: i > activeIdx ? 0.4 : 1,
+                }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: "50%", background: "currentColor", flexShrink: 0,
+                    animation: i === activeIdx ? "pulse-dot 1.2s ease-in-out infinite" : "none",
+                  }} />
+                  {s.label}
+                </div>
+              ))}
+            </div>
+            {detail && (
+              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{detail}</div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Category breakdown */}
       {Object.keys(categories).length > 0 && (

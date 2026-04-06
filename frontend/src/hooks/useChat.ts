@@ -4,8 +4,14 @@ import type { ChatMessage } from "../types";
 
 export type ChatPhase = "idle" | "sending" | "searching" | "thinking" | "answering";
 
-/** Minimum milliseconds each phase stays visible before transitioning. */
-const MIN_PHASE_MS = 600;
+/** Minimum milliseconds each phase must stay visible before transitioning. */
+const PHASE_MIN_MS: Record<ChatPhase, number> = {
+  idle: 0,
+  sending: 5000,
+  searching: 3000,
+  thinking: 0,
+  answering: 0,
+};
 
 export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask") {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -23,15 +29,19 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
       const assistantMsg: ChatMessage = { role: "assistant", content: "", thinking: "" };
       setMessages((prev) => [...prev, assistantMsg]);
 
-      // Track phase timing so each phase is visible for at least MIN_PHASE_MS
-      let lastPhaseTime = Date.now();
+      // Track phase timing so each phase is visible for its minimum duration
+      let currentPhase: ChatPhase = "sending";
+      let phaseStartTime = Date.now();
+
       const transitionPhase = async (next: ChatPhase) => {
-        const elapsed = Date.now() - lastPhaseTime;
-        if (elapsed < MIN_PHASE_MS) {
-          await new Promise((r) => setTimeout(r, MIN_PHASE_MS - elapsed));
+        const minMs = PHASE_MIN_MS[currentPhase];
+        const elapsed = Date.now() - phaseStartTime;
+        if (elapsed < minMs) {
+          await new Promise((r) => setTimeout(r, minMs - elapsed));
         }
         setPhase(next);
-        lastPhaseTime = Date.now();
+        currentPhase = next;
+        phaseStartTime = Date.now();
       };
 
       try {
@@ -53,6 +63,15 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
             } else if (event.phase === "answering") {
               await transitionPhase("answering");
               answering = true;
+              // Mark thinking as done so the component collapses it
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last.role === "assistant" && last.thinking) {
+                  updated[updated.length - 1] = { ...last, thinkingDone: true };
+                }
+                return updated;
+              });
             }
           }
           if (event.thinking) {
@@ -72,6 +91,14 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
             if (!answering) {
               await transitionPhase("answering");
               answering = true;
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last.role === "assistant" && last.thinking) {
+                  updated[updated.length - 1] = { ...last, thinkingDone: true };
+                }
+                return updated;
+              });
             }
             setMessages((prev) => {
               const updated = [...prev];

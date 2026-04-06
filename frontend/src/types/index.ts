@@ -23,6 +23,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   thinking?: string;
+  thinkingDone?: boolean;
 }
 
 export interface SearchResult {

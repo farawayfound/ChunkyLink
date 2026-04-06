@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { ChatMessage as Msg } from "../types";
 
 interface Props {
@@ -8,21 +8,45 @@ interface Props {
 export function ChatMessage({ message }: Props) {
   const isUser = message.role === "user";
   const [thinkingOpen, setThinkingOpen] = useState(false);
+  const thinkingRef = useRef<HTMLDivElement>(null);
+  const hasThinking = !isUser && !!message.thinking;
+  const isThinkingLive = hasThinking && !message.thinkingDone;
+
+  // While thinking is live/streaming, keep it open; collapse when done
+  useEffect(() => {
+    if (isThinkingLive) {
+      setThinkingOpen(true);
+    } else if (message.thinkingDone) {
+      setThinkingOpen(false);
+    }
+  }, [isThinkingLive, message.thinkingDone]);
+
+  // Auto-scroll thinking content while streaming
+  useEffect(() => {
+    if (isThinkingLive && thinkingRef.current) {
+      thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
+    }
+  }, [message.thinking, isThinkingLive]);
 
   return (
     <div className={`chat-message ${isUser ? "user" : "assistant"}`}>
       <div className="message-role">{isUser ? "You" : "ChunkyLink"}</div>
-      {!isUser && message.thinking && (
+      {hasThinking && (
         <div className="thinking-block">
           <button
             className="thinking-toggle"
             onClick={() => setThinkingOpen((o) => !o)}
           >
             <span className={`thinking-arrow ${thinkingOpen ? "open" : ""}`}>&#9654;</span>
-            {" "}Thinking
+            {" "}{isThinkingLive ? "Thinking…" : "Thinking"}
           </button>
           {thinkingOpen && (
-            <div className="thinking-content">{message.thinking}</div>
+            <div
+              ref={thinkingRef}
+              className={`thinking-content ${isThinkingLive ? "thinking-live" : ""}`}
+            >
+              {message.thinking}
+            </div>
           )}
         </div>
       )}
