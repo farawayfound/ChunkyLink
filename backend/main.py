@@ -1,19 +1,23 @@
 # -*- coding: utf-8 -*-
-"""ChunkyLink — FastAPI application entry point."""
+"""ChunkyPotato — FastAPI application entry point."""
 import asyncio
 import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.config import get_settings
 from backend.database import init_db_sync
 from backend.logger import log_event, set_session
+from backend.chat.ollama_client import init_ollama_http, close_ollama_http, ensure_single_model_loaded
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
@@ -48,7 +52,6 @@ async def _model_keepalive() -> None:
     model is already in memory. Uses exponential back-off if Ollama isn't
     reachable yet (common right after system boot).
     """
-    from backend.chat.ollama_client import ensure_single_model_loaded
     await asyncio.sleep(5)  # let the app fully start before first ping
     retry_delay = 30
     while True:
@@ -78,7 +81,14 @@ async def lifespan(app: FastAPI):
         d.mkdir(parents=True, exist_ok=True)
     # Initialize database
     init_db_sync()
-    # Keep the Ollama model warm so first-token latency is always minimal
+    await init_ollama_http()
+    # Warm model as soon as Ollama is up (first chat request avoids cold load)
+    try:
+        await ensure_single_model_loaded(settings.OLLAMA_MODEL)
+        log_event("ollama_startup_warm", model=settings.OLLAMA_MODEL)
+    except Exception as exc:
+        logging.warning("ollama startup warm failed (keepalive will retry): %s", exc)
+    # Keep the Ollama model warm so first-token latency stays predictable
     keepalive_task = asyncio.create_task(_model_keepalive())
     yield
     keepalive_task.cancel()
@@ -86,13 +96,14 @@ async def lifespan(app: FastAPI):
         await keepalive_task
     except asyncio.CancelledError:
         pass
+    await close_ollama_http()
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(
-        title="ChunkyLink",
+        title="ChunkyPotato",
         description="Self-hostable document RAG system",
         version="0.1.0",
         lifespan=lifespan,
@@ -118,6 +129,21 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     async def health():
         return {"status": "ok", "service": "chunkylink"}
+
+    # Serve the pre-built React frontend if the dist/ folder exists.
+    # This lets uvicorn run as a single process without a separate nginx.
+    dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    if dist.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(dist / "assets")), name="assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def spa_fallback(full_path: str):
+            # Serve real files that exist (favicon, robots.txt, etc.)
+            candidate = dist / full_path
+            if candidate.is_file():
+                return FileResponse(str(candidate))
+            # Everything else → index.html (SPA client-side routing)
+            return FileResponse(str(dist / "index.html"))
 
     return app
 
