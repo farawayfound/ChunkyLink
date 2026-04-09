@@ -1258,7 +1258,10 @@ function DemoKBTab() {
           if (s.job?.status !== "running" && pollRef.current) {
             clearInterval(pollRef.current);
             pollRef.current = null;
-            loadSuggestions();
+            setTimeout(() => {
+              loadSuggestions();
+              loadStatus();
+            }, 500);
           }
         }).catch(() => {});
       }, 2000);
@@ -1266,7 +1269,7 @@ function DemoKBTab() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [status.job?.status, loadSuggestions]);
+  }, [status.job?.status, loadSuggestions, loadStatus]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);

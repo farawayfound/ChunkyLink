@@ -79,10 +79,25 @@ def _inject_curated_chunks(index_dir: Path) -> int:
     return len(chunks)
 
 
+def _clean_index_dir(index_dir: Path) -> None:
+    """Remove all previous index artifacts so each build starts fresh."""
+    import shutil
+    for subdir in ("detail", "router", "state", "manifests", "logs"):
+        target = index_dir / subdir
+        if target.exists():
+            shutil.rmtree(target)
+    for f in index_dir.glob("*.json"):
+        f.unlink(missing_ok=True)
+
+
 def _run_demo_index():
     """Run demo KB indexing in background thread with granular progress tracking."""
     global _demo_job
     try:
+        # Phase 0: Clean previous index for a full rebuild
+        _demo_job = {"status": "running", "step": "indexing", "detail": "Cleaning previous index", "error": None}
+        _clean_index_dir(get_demo_index_dir())
+
         # Phase 1: Index uploaded documents
         _demo_job = {"status": "running", "step": "indexing", "detail": "Building document index", "error": None}
         from backend.indexers.build_index import main as build_main
