@@ -127,6 +127,30 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
           return updated;
         });
       } finally {
+        // Finalize the assistant message — runs no matter how the stream ended.
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === "assistant") {
+            const patched = { ...last };
+
+            // Always mark thinking as complete so the toggle never sticks on "Thinking…"
+            if (patched.thinking) {
+              patched.thinkingDone = true;
+            }
+
+            // If the model produced only thinking content with no visible response
+            // (e.g. Ollama auto-separated and model spent all tokens on reasoning),
+            // move thinking into the response area so the user always sees something.
+            if (!patched.content.trim() && patched.thinking) {
+              patched.content = patched.thinking;
+              patched.thinking = "";
+            }
+
+            updated[updated.length - 1] = patched;
+          }
+          return updated;
+        });
         setStreaming(false);
         setPhase("idle");
       }

@@ -91,6 +91,7 @@ async def ask_stream_events(
     temperature = settings.CHAT_TEMPERATURE
     max_tokens = settings.CHAT_MAX_TOKENS
     emitted_answering = False
+    thinking_parts: list[str] = []
     # If perf_out is provided, use it directly as the latency dict so Ollama metrics
     # are written incrementally and available even if the generator is abandoned early.
     ollama_latency: dict = perf_out if perf_out is not None else {}
@@ -100,12 +101,21 @@ async def ask_stream_events(
         latency=ollama_latency,
     ):
         if kind == "thinking":
+            thinking_parts.append(text)
             yield {"thinking": text}
         else:
             if not emitted_answering:
                 yield {"phase": "answering"}
                 emitted_answering = True
             yield {"text": text}
+
+    # Safety net: if the model only produced thinking content (e.g. Ollama
+    # auto-separated into the thinking field and the model spent all tokens on
+    # reasoning), re-emit the thinking as visible text so the user always sees
+    # a response regardless of model or Ollama version behaviour.
+    if not emitted_answering and thinking_parts:
+        yield {"phase": "answering"}
+        yield {"text": "".join(thinking_parts)}
 
     log_event(
         "chat_latency",
@@ -239,6 +249,7 @@ async def ask_with_history_stream_events(
         top_score=search_results["results"][0].get("RelevanceScore", 0) if search_results.get("results") else 0,
     )
     emitted_answering = False
+    thinking_parts: list[str] = []
     ollama_latency: dict = perf_out if perf_out is not None else {}
     async for kind, text in chat_stream(
         messages=chat_messages, model=model,
@@ -246,12 +257,17 @@ async def ask_with_history_stream_events(
         latency=ollama_latency,
     ):
         if kind == "thinking":
+            thinking_parts.append(text)
             yield {"thinking": text}
         else:
             if not emitted_answering:
                 yield {"phase": "answering"}
                 emitted_answering = True
             yield {"text": text}
+
+    if not emitted_answering and thinking_parts:
+        yield {"phase": "answering"}
+        yield {"text": "".join(thinking_parts)}
 
     log_event(
         "chat_latency",
