@@ -18,10 +18,12 @@ import {
   getDemoStatus,
   getPerfLog,
   getPerfEntry,
+  getAdminConfig,
+  updateAdminConfig,
 } from "../api/client";
 import type { InviteCode } from "../types";
 
-type Tab = "overview" | "codes" | "users" | "activity" | "ollama" | "demokb" | "perf";
+type Tab = "overview" | "codes" | "users" | "activity" | "ollama" | "demokb" | "perf" | "configuration";
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: "Overview",
@@ -31,6 +33,7 @@ const TAB_LABELS: Record<Tab, string> = {
   ollama: "Ollama",
   demokb: "Demo KB",
   perf: "Performance",
+  configuration: "Configuration",
 };
 
 export function AdminPanel() {
@@ -58,6 +61,7 @@ export function AdminPanel() {
         {tab === "ollama" && <OllamaTab />}
         {tab === "demokb" && <DemoKBTab />}
         {tab === "perf" && <PerformanceTab />}
+        {tab === "configuration" && <ConfigurationTab />}
       </div>
     </div>
   );
@@ -827,6 +831,325 @@ function PerfDetail({ entry, loading, thinkMs, totalMs }: {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Configuration Tab ─────────────────────────────────────────────────────────
+
+const CTX_PRESETS = [
+  { label: "2k", value: 2048 },
+  { label: "4k", value: 4096 },
+  { label: "8k", value: 8192 },
+  { label: "16k", value: 16384 },
+  { label: "32k", value: 32768 },
+  { label: "64k", value: 65536 },
+  { label: "128k", value: 131072 },
+];
+
+function ConfigurationTab() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Context window
+  const [numCtx, setNumCtx] = useState(4096);
+  const [numCtxInput, setNumCtxInput] = useState("4096");
+  const [reloading, setReloading] = useState(false);
+
+  // System prompt
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [systemPromptDraft, setSystemPromptDraft] = useState("");
+
+  // Rules
+  const [systemRules, setSystemRules] = useState("");
+  const [systemRulesDraft, setSystemRulesDraft] = useState("");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    getAdminConfig()
+      .then((d) => {
+        setNumCtx(d.num_ctx ?? 4096);
+        setNumCtxInput(String(d.num_ctx ?? 4096));
+        setSystemPrompt(d.system_prompt ?? "");
+        setSystemPromptDraft(d.system_prompt ?? "");
+        setSystemRules(d.system_rules ?? "");
+        setSystemRulesDraft(d.system_rules ?? "");
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const flash = (msg: string) => {
+    setSuccess(msg);
+    setTimeout(() => setSuccess(null), 3000);
+  };
+
+  const handleSaveCtx = async () => {
+    const val = parseInt(numCtxInput, 10);
+    if (isNaN(val) || val < 512) {
+      setError("Context window must be at least 512 tokens.");
+      return;
+    }
+    setError(null);
+    setSaving("ctx");
+    try {
+      const res = await updateAdminConfig({ num_ctx: val });
+      setNumCtx(res.num_ctx);
+      setNumCtxInput(String(res.num_ctx));
+      if (res.reloading) {
+        setReloading(true);
+        flash(`Context window set to ${res.num_ctx.toLocaleString()} — model is reloading…`);
+        setTimeout(() => setReloading(false), 8000);
+      } else {
+        flash(`Context window saved: ${res.num_ctx.toLocaleString()} tokens`);
+      }
+    } catch (e: any) {
+      setError(e.message || "Failed to save context window");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleSavePrompt = async () => {
+    setError(null);
+    setSaving("prompt");
+    try {
+      await updateAdminConfig({ system_prompt: systemPromptDraft });
+      setSystemPrompt(systemPromptDraft);
+      flash("System prompt saved.");
+    } catch (e: any) {
+      setError(e.message || "Failed to save system prompt");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleResetPrompt = async () => {
+    setError(null);
+    setSaving("prompt");
+    try {
+      await updateAdminConfig({ system_prompt: "" });
+      setSystemPrompt("");
+      setSystemPromptDraft("");
+      flash("System prompt reset to built-in default.");
+    } catch (e: any) {
+      setError(e.message || "Failed to reset system prompt");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleSaveRules = async () => {
+    setError(null);
+    setSaving("rules");
+    try {
+      await updateAdminConfig({ system_rules: systemRulesDraft });
+      setSystemRules(systemRulesDraft);
+      flash("Rules saved.");
+    } catch (e: any) {
+      setError(e.message || "Failed to save rules");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const sectionStyle: React.CSSProperties = {
+    padding: "1.25rem 1.5rem",
+    background: "var(--bg-card)",
+    border: "1px solid var(--border)",
+    borderRadius: "8px",
+    marginBottom: "1.5rem",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    display: "block",
+    fontSize: "0.8rem",
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    color: "var(--text-muted)",
+    marginBottom: "0.5rem",
+  };
+
+  const textareaStyle: React.CSSProperties = {
+    width: "100%",
+    minHeight: 140,
+    padding: "10px 12px",
+    background: "var(--bg)",
+    color: "var(--text)",
+    border: "1px solid var(--border)",
+    borderRadius: "6px",
+    fontFamily: "monospace",
+    fontSize: "0.85rem",
+    resize: "vertical",
+    boxSizing: "border-box",
+  };
+
+  if (loading) return <p>Loading…</p>;
+
+  return (
+    <div style={{ maxWidth: 780 }}>
+      {error && (
+        <div className="error-banner" style={{ marginBottom: "1rem" }}>{error}</div>
+      )}
+      {success && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "10px 14px",
+            background: "color-mix(in srgb, var(--success) 12%, var(--bg-card))",
+            border: "1px solid color-mix(in srgb, var(--success) 30%, var(--border))",
+            borderRadius: "6px",
+            color: "var(--success)",
+            fontSize: "0.9rem",
+          }}
+        >
+          {success}
+        </div>
+      )}
+
+      {/* ── Context Window ── */}
+      <div style={sectionStyle}>
+        <h4 style={{ margin: "0 0 0.75rem" }}>Context Window</h4>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 1rem" }}>
+          Number of tokens the loaded model keeps in its attention window. A larger value allows
+          longer conversations but requires more GPU/CPU memory. Saving will unload and reload
+          the model in Ollama to apply the new size.
+        </p>
+
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+          {CTX_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              className={`btn btn-sm${numCtxInput === String(p.value) ? " btn-primary" : ""}`}
+              style={numCtxInput !== String(p.value) ? { background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" } : {}}
+              onClick={() => setNumCtxInput(String(p.value))}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <input
+            type="number"
+            value={numCtxInput}
+            min={512}
+            step={512}
+            onChange={(e) => setNumCtxInput(e.target.value)}
+            style={{ width: 120, padding: "7px 10px", background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "6px" }}
+          />
+          <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>tokens</span>
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveCtx}
+            disabled={saving === "ctx" || numCtxInput === String(numCtx)}
+          >
+            {saving === "ctx" ? "Saving…" : "Save & Reload Model"}
+          </button>
+          {reloading && (
+            <span style={{ color: "#f59e0b", fontSize: "0.85rem" }}>Reloading model…</span>
+          )}
+        </div>
+
+        <div style={{ marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+          Current: <strong>{numCtx.toLocaleString()}</strong> tokens
+          {numCtx >= 1024 ? ` (${Math.round(numCtx / 1024)}k)` : ""}
+        </div>
+      </div>
+
+      {/* ── System Prompt ── */}
+      <div style={sectionStyle}>
+        <h4 style={{ margin: "0 0 0.4rem" }}>System Prompt</h4>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 0.75rem" }}>
+          Overrides the built-in system prompt sent to the model on every request.
+          Leave blank to use the default prompt.
+        </p>
+        <label style={labelStyle}>Custom system prompt</label>
+        <textarea
+          style={textareaStyle}
+          value={systemPromptDraft}
+          onChange={(e) => setSystemPromptDraft(e.target.value)}
+          placeholder="Leave blank to use the built-in default prompt…"
+          spellCheck={false}
+        />
+        <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.75rem" }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSavePrompt}
+            disabled={saving === "prompt" || systemPromptDraft === systemPrompt}
+          >
+            {saving === "prompt" ? "Saving…" : "Save Prompt"}
+          </button>
+          {systemPrompt && (
+            <button
+              className="btn btn-sm"
+              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+              onClick={handleResetPrompt}
+              disabled={saving === "prompt"}
+            >
+              Reset to default
+            </button>
+          )}
+        </div>
+        {!systemPrompt && (
+          <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+            Using built-in default prompt.
+          </div>
+        )}
+      </div>
+
+      {/* ── Rules ── */}
+      <div style={sectionStyle}>
+        <h4 style={{ margin: "0 0 0.4rem" }}>Additional Rules</h4>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 0.75rem" }}>
+          Appended after the system prompt (whether default or custom). Useful for adding
+          extra constraints or persona instructions without replacing the whole prompt.
+        </p>
+        <label style={labelStyle}>Rules / extra instructions</label>
+        <textarea
+          style={textareaStyle}
+          value={systemRulesDraft}
+          onChange={(e) => setSystemRulesDraft(e.target.value)}
+          placeholder={"e.g.\n- Always respond in British English.\n- Never mention competitor products."}
+          spellCheck={false}
+        />
+        <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.75rem" }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveRules}
+            disabled={saving === "rules" || systemRulesDraft === systemRules}
+          >
+            {saving === "rules" ? "Saving…" : "Save Rules"}
+          </button>
+          {systemRules && (
+            <button
+              className="btn btn-sm"
+              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+              onClick={async () => {
+                setSystemRulesDraft("");
+                setSaving("rules");
+                try {
+                  await updateAdminConfig({ system_rules: "" });
+                  setSystemRules("");
+                  flash("Rules cleared.");
+                } catch (e: any) {
+                  setError(e.message);
+                } finally {
+                  setSaving(null);
+                }
+              }}
+              disabled={saving === "rules"}
+            >
+              Clear rules
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

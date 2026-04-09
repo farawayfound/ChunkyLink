@@ -31,6 +31,8 @@ export interface ChatStreamEvent {
   text?: string;
   thinking?: string;
   phase?: string;
+  /** Emitted when the model never used </think> — all "thinking" content is actually the response. */
+  promote_thinking_to_text?: boolean;
 }
 
 export async function* streamChat(
@@ -180,6 +182,11 @@ export const getDemoStatus = () => request<any>("/admin/demo/status");
 export const getPerfLog = (page = 1, pageSize = 20) =>
   request<any>(`/admin/perf?page=${page}&page_size=${pageSize}`);
 export const getPerfEntry = (id: number) => request<any>(`/admin/perf/${id}`);
+
+// Admin — Runtime configuration
+export const getAdminConfig = () => request<any>("/admin/config");
+export const updateAdminConfig = (body: Record<string, unknown>) =>
+  request<any>("/admin/config", { method: "PUT", body: JSON.stringify(body) });
 
 export async function uploadDemoDocument(file: File): Promise<any> {
   const form = new FormData();

@@ -363,6 +363,86 @@ async def admin_perf_entry(
         await db.close()
 
 
+# ── Runtime Configuration ────────────────────────────────────────────────────
+
+@router.get("/config")
+async def admin_get_config(request: Request, user: dict = Depends(require_admin)):
+    """Return current runtime configuration (context window, system prompt, rules)."""
+    settings = get_settings()
+    return {
+        "num_ctx": settings.OLLAMA_NUM_CTX,
+        "system_prompt": settings.SYSTEM_PROMPT_OVERRIDE or "",
+        "system_rules": settings.SYSTEM_RULES_OVERRIDE or "",
+        "model": settings.OLLAMA_MODEL,
+    }
+
+
+@router.put("/config")
+async def admin_update_config(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_admin),
+):
+    """Update runtime configuration.
+
+    Accepted fields (all optional):
+    - ``num_ctx`` (int)   — context window; triggers a model reload in Ollama
+    - ``system_prompt``   — replaces the built-in system prompt (empty string = reset)
+    - ``system_rules``    — extra rules appended to whichever prompt is active
+    """
+    body = await request.json()
+    settings = get_settings()
+    changed: list[str] = []
+    reload_model = False
+
+    if "num_ctx" in body:
+        new_ctx = int(body["num_ctx"])
+        if new_ctx < 512:
+            raise HTTPException(400, "num_ctx must be at least 512")
+        if new_ctx != settings.OLLAMA_NUM_CTX:
+            settings.OLLAMA_NUM_CTX = new_ctx
+            changed.append("num_ctx")
+            reload_model = True
+
+    if "system_prompt" in body:
+        val = (body["system_prompt"] or "").strip()
+        settings.SYSTEM_PROMPT_OVERRIDE = val or None
+        changed.append("system_prompt")
+
+    if "system_rules" in body:
+        val = (body["system_rules"] or "").strip()
+        settings.SYSTEM_RULES_OVERRIDE = val or None
+        changed.append("system_rules")
+
+    if changed:
+        settings.save_admin_config()
+        log_event("admin_config_updated", user_id=user["user_id"], changed=",".join(changed))
+
+    if reload_model and settings.OLLAMA_MODEL:
+        background_tasks.add_task(
+            _reload_model_with_ctx, settings.OLLAMA_MODEL, settings.OLLAMA_NUM_CTX
+        )
+
+    return {
+        "status": "ok",
+        "changed": changed,
+        "num_ctx": settings.OLLAMA_NUM_CTX,
+        "system_prompt": settings.SYSTEM_PROMPT_OVERRIDE or "",
+        "system_rules": settings.SYSTEM_RULES_OVERRIDE or "",
+        "reloading": reload_model,
+    }
+
+
+async def _reload_model_with_ctx(name: str, num_ctx: int) -> None:
+    """Unload the model then reload it with the new context window size."""
+    try:
+        await unload_model(name)
+        await preload_model(name, num_ctx=num_ctx)
+        logging.info(f"admin: reloaded '{name}' with num_ctx={num_ctx}")
+    except Exception as e:
+        logging.warning(f"admin: failed to reload '{name}' with num_ctx={num_ctx}: {e}")
+
+
 # ── Demo KB Management ────────────────────────────────────────────────────────
 
 @router.get("/demo/documents")

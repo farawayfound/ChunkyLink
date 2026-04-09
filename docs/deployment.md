@@ -113,6 +113,32 @@ SSH in and run:
 sudo bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh
 ```
 
+### 2a. Deploy on `david@macmini` (LaunchAgent)
+
+On macOS installs that use `scripts/setup_macmini.sh`, the app runs as a user LaunchAgent (`com.chunkylink.backend`) instead of a systemd service.
+
+Run these commands directly on the Mac mini:
+
+```bash
+cd ~/chunkylink
+git pull --ff-only
+launchctl kickstart -k "gui/$(id -u)/com.chunkylink.backend"
+```
+
+Optional full refresh (re-installs deps, rebuilds frontend, and reloads the LaunchAgent):
+
+```bash
+cd ~/chunkylink
+bash scripts/setup_macmini.sh
+```
+
+Quick verification on macOS:
+
+```bash
+launchctl print "gui/$(id -u)/com.chunkylink.backend" | rg "state =|pid ="
+tail -n 100 ~/Library/Logs/chunkylink.log
+```
+
 This will:
 
 1. **`git fetch`** / **`git pull --ff-only`** (fails if the server has diverging local commits).

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """ChunkyPotato unified configuration — loaded from environment variables."""
+import json
 import os
 from pathlib import Path
 from functools import lru_cache
@@ -114,6 +115,39 @@ class Settings:
         self.CHAT_SEARCH_LEVEL = os.getenv("CHAT_SEARCH_LEVEL", "Quick")
         # 0 = TTL disabled (LRU only); else seconds until identical search cache entries expire
         self.SEARCH_RESULT_CACHE_TTL_SEC = int(os.getenv("SEARCH_RESULT_CACHE_TTL_SEC", "300"))
+
+        # ── Runtime admin overrides (mutable; persisted to DATA_DIR/admin_config.json) ──
+        # These are set/updated via the admin Configuration tab at runtime.
+        self.SYSTEM_PROMPT_OVERRIDE: str | None = None
+        self.SYSTEM_RULES_OVERRIDE: str | None = None
+        self._load_admin_config()
+
+    def _load_admin_config(self) -> None:
+        """Load runtime admin overrides from DATA_DIR/admin_config.json."""
+        path = self.DATA_DIR / "admin_config.json"
+        if not path.exists():
+            return
+        try:
+            data: dict = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("num_ctx"):
+                self.OLLAMA_NUM_CTX = int(data["num_ctx"])
+            if data.get("system_prompt") is not None:
+                self.SYSTEM_PROMPT_OVERRIDE = data["system_prompt"] or None
+            if data.get("system_rules") is not None:
+                self.SYSTEM_RULES_OVERRIDE = data["system_rules"] or None
+        except Exception:
+            pass
+
+    def save_admin_config(self) -> None:
+        """Persist current runtime overrides to DATA_DIR/admin_config.json."""
+        path = self.DATA_DIR / "admin_config.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "num_ctx": self.OLLAMA_NUM_CTX,
+            "system_prompt": self.SYSTEM_PROMPT_OVERRIDE or "",
+            "system_rules": self.SYSTEM_RULES_OVERRIDE or "",
+        }
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def _load_dotenv(self):
         """Load .env file from project root if it exists."""

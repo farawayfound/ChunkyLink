@@ -223,28 +223,31 @@ def _ollama_same_base_model(loaded_name: str, want: str) -> bool:
     return a == b
 
 
-async def preload_model(name: str) -> None:
-    """Load a model into memory with keep_alive=-1 (never auto-evict)."""
+async def preload_model(name: str, num_ctx: int | None = None) -> None:
+    """Load a model into memory with keep_alive=-1 (never auto-evict).
+
+    Pass ``num_ctx`` to force Ollama to allocate the KV cache for a specific
+    context window size on load.  If omitted, the current settings value is used.
+    """
     settings = get_settings()
     url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate"
     t0 = time.monotonic()
+    ctx = num_ctx if num_ctx is not None else settings.OLLAMA_NUM_CTX
+    payload: dict = {"model": name, "keep_alive": -1, "stream": False, "options": {"num_ctx": ctx}}
     try:
         if _http_client is not None:
             resp = await _http_client.post(
                 url,
-                json={"model": name, "keep_alive": -1, "stream": False},
+                json=payload,
                 timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0),
             )
         else:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
             ) as c:
-                resp = await c.post(
-                    url,
-                    json={"model": name, "keep_alive": -1, "stream": False},
-                )
+                resp = await c.post(url, json=payload)
         resp.raise_for_status()
-        logging.info(f"ollama_client: preloaded '{name}'")
+        logging.info(f"ollama_client: preloaded '{name}' with num_ctx={ctx}")
         _readiness_metrics["last_preload_ms"] = round((time.monotonic() - t0) * 1000)
         _readiness_metrics["last_preload_at_utc"] = datetime.now(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"

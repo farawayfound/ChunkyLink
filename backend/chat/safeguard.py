@@ -38,10 +38,23 @@ def get_system_prompt(mode: str = "ama") -> str:
     Modes:
         ama       — Ask Me Anything (demo/resume content)
         documents — User's own uploaded documents
+
+    If SYSTEM_PROMPT_OVERRIDE is set via the admin Configuration tab it replaces
+    the built-in prompt.  SYSTEM_RULES_OVERRIDE is appended to whichever base
+    prompt is active.
     """
     settings = get_settings()
     owner = settings.OWNER_NAME or "the document author"
-    return _system_prompt_cached(mode, owner)
+
+    if settings.SYSTEM_PROMPT_OVERRIDE:
+        base = settings.SYSTEM_PROMPT_OVERRIDE
+    else:
+        base = _system_prompt_cached(mode, owner)
+
+    if settings.SYSTEM_RULES_OVERRIDE:
+        return base.rstrip() + "\n\n" + settings.SYSTEM_RULES_OVERRIDE
+
+    return base
 
 
 def format_context(results: list[dict], max_chunks: int | None = None) -> str:

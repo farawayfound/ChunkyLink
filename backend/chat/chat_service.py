@@ -204,6 +204,11 @@ async def ask_stream_events(
                 emitted_answering = True
             yield {"text": text}
 
+    # Non-reasoning model: all content was streamed as thinking but </think> was never seen.
+    # Signal the frontend to promote the accumulated thinking content to the response area.
+    if not emitted_answering and not parser._saw_close:
+        yield {"promote_thinking_to_text": True}
+
     log_event(
         "chat_latency",
         path="ask_stream_events",
@@ -359,6 +364,9 @@ async def ask_with_history_stream_events(
                 yield {"phase": "answering"}
                 emitted_answering = True
             yield {"text": text}
+
+    if not emitted_answering and not parser._saw_close:
+        yield {"promote_thinking_to_text": True}
 
     log_event(
         "chat_latency",
