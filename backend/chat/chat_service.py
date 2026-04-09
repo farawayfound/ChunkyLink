@@ -2,6 +2,7 @@
 """RAG pipeline: query -> search -> relevance check -> context -> Ollama -> stream."""
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -125,6 +126,7 @@ async def ask_stream_events(
     mode: str = "ama",
     model: str | None = None,
     level: str | None = None,
+    perf_out: dict | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """RAG pipeline yielding SSE-friendly dicts: {"phase": "search"|"generate"}, {"text": "..."}."""
     settings = get_settings()
@@ -138,6 +140,7 @@ async def ask_stream_events(
 
     yield {"phase": "search"}
 
+    t_search0 = time.monotonic()
     search_results = await search(
         terms=terms,
         query=query,
@@ -145,18 +148,29 @@ async def ask_stream_events(
         kb_dir=kb_dir,
         max_results=20,
     )
+    search_ms = round((time.monotonic() - t_search0) * 1000)
+    if perf_out is not None:
+        perf_out["search_ms"] = search_ms
 
     should_proceed, refusal = check_relevance(search_results)
     if not should_proceed:
         log_event("chat_refused", query=query, reason="low_relevance")
+        log_event("chat_latency", path="ask_stream_events", search_ms=search_ms,
+                  prompt_build_ms=None, refused=True)
+        if perf_out is not None:
+            perf_out["refused"] = True
         yield {"text": refusal}
         return
 
     yield {"phase": "generate"}
 
+    t_prompt0 = time.monotonic()
     system = get_system_prompt(mode)
     context = format_context(search_results.get("results", []))
     prompt = build_prompt(query, context)
+    prompt_build_ms = round((time.monotonic() - t_prompt0) * 1000)
+    if perf_out is not None:
+        perf_out["prompt_build_ms"] = prompt_build_ms
 
     log_event("chat_generate", query=query, context_chunks=len(search_results.get("results", [])),
               top_score=search_results["results"][0].get("RelevanceScore", 0) if search_results.get("results") else 0)
@@ -165,9 +179,13 @@ async def ask_stream_events(
     max_tokens = settings.CHAT_MAX_TOKENS
     parser = _ThinkParser()
     emitted_answering = False
+    # If perf_out is provided, use it directly as the latency dict so Ollama metrics
+    # are written incrementally and available even if the generator is abandoned early.
+    ollama_latency: dict = perf_out if perf_out is not None else {}
     async for chunk in generate_stream(
         prompt=prompt, system=system, model=model,
         temperature=temperature, max_tokens=max_tokens,
+        latency=ollama_latency,
     ):
         for kind, text in parser.feed(chunk):
             if kind == "thinking":
@@ -185,6 +203,17 @@ async def ask_stream_events(
                 yield {"phase": "answering"}
                 emitted_answering = True
             yield {"text": text}
+
+    log_event(
+        "chat_latency",
+        path="ask_stream_events",
+        search_ms=search_ms,
+        prompt_build_ms=prompt_build_ms,
+        ollama_connect_ms=ollama_latency.get("ollama_connect_ms"),
+        ttft_ms=ollama_latency.get("ttft_ms"),
+        stream_total_ms=ollama_latency.get("stream_total_ms"),
+        refused=False,
+    )
 
 
 async def ask(
@@ -233,6 +262,7 @@ async def ask_with_history_stream_events(
     mode: str = "ama",
     model: str | None = None,
     level: str | None = None,
+    perf_out: dict | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """RAG with history; yields phase events and text chunks (same shape as ask_stream_events)."""
     settings = get_settings()
@@ -251,9 +281,11 @@ async def ask_with_history_stream_events(
         return
 
     terms = _extract_terms(query)
+    log_event("chat_ask", query=query, mode=mode, terms=terms, with_history=True)
 
     yield {"phase": "search"}
 
+    t_search0 = time.monotonic()
     search_results = await search(
         terms=terms,
         query=query,
@@ -261,14 +293,23 @@ async def ask_with_history_stream_events(
         level=eff_level,
         max_results=20,
     )
+    search_ms = round((time.monotonic() - t_search0) * 1000)
+    if perf_out is not None:
+        perf_out["search_ms"] = search_ms
 
     should_proceed, refusal = check_relevance(search_results)
     if not should_proceed:
+        log_event("chat_refused", query=query, reason="low_relevance", with_history=True)
+        log_event("chat_latency", path="ask_with_history_stream_events", search_ms=search_ms,
+                  prompt_build_ms=None, refused=True, with_history=True)
+        if perf_out is not None:
+            perf_out["refused"] = True
         yield {"text": refusal}
         return
 
     yield {"phase": "generate"}
 
+    t_prompt0 = time.monotonic()
     system = get_system_prompt(mode)
     context = format_context(search_results.get("results", []))
 
@@ -282,13 +323,25 @@ async def ask_with_history_stream_events(
     for msg in messages[-20:]:
         if msg.get("role") in ("user", "assistant"):
             chat_messages.append({"role": msg["role"], "content": msg["content"]})
+    prompt_build_ms = round((time.monotonic() - t_prompt0) * 1000)
+    if perf_out is not None:
+        perf_out["prompt_build_ms"] = prompt_build_ms
 
     settings = get_settings()
+    log_event(
+        "chat_generate",
+        query=query,
+        with_history=True,
+        context_chunks=len(search_results.get("results", [])),
+        top_score=search_results["results"][0].get("RelevanceScore", 0) if search_results.get("results") else 0,
+    )
     parser = _ThinkParser()
     emitted_answering = False
+    ollama_latency: dict = perf_out if perf_out is not None else {}
     async for chunk in chat_stream(
         messages=chat_messages, model=model,
         temperature=settings.CHAT_TEMPERATURE, max_tokens=settings.CHAT_MAX_TOKENS,
+        latency=ollama_latency,
     ):
         for kind, text in parser.feed(chunk):
             if kind == "thinking":
@@ -306,6 +359,18 @@ async def ask_with_history_stream_events(
                 yield {"phase": "answering"}
                 emitted_answering = True
             yield {"text": text}
+
+    log_event(
+        "chat_latency",
+        path="ask_with_history_stream_events",
+        search_ms=search_ms,
+        prompt_build_ms=prompt_build_ms,
+        ollama_connect_ms=ollama_latency.get("ollama_connect_ms"),
+        ttft_ms=ollama_latency.get("ttft_ms"),
+        stream_total_ms=ollama_latency.get("stream_total_ms"),
+        refused=False,
+        with_history=True,
+    )
 
 
 async def ask_with_history(

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import {
   getAdminStats,
   getAdminUsers,
@@ -16,10 +16,12 @@ import {
   uploadDemoDocument,
   buildDemoIndex,
   getDemoStatus,
+  getPerfLog,
+  getPerfEntry,
 } from "../api/client";
 import type { InviteCode } from "../types";
 
-type Tab = "overview" | "codes" | "users" | "activity" | "ollama" | "demokb";
+type Tab = "overview" | "codes" | "users" | "activity" | "ollama" | "demokb" | "perf";
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: "Overview",
@@ -28,6 +30,7 @@ const TAB_LABELS: Record<Tab, string> = {
   activity: "Activity",
   ollama: "Ollama",
   demokb: "Demo KB",
+  perf: "Performance",
 };
 
 export function AdminPanel() {
@@ -54,6 +57,7 @@ export function AdminPanel() {
         {tab === "activity" && <ActivityTab />}
         {tab === "ollama" && <OllamaTab />}
         {tab === "demokb" && <DemoKBTab />}
+        {tab === "perf" && <PerformanceTab />}
       </div>
     </div>
   );
@@ -494,6 +498,255 @@ function OllamaTab() {
             </tbody>
           </table>
         </>
+      )}
+    </div>
+  );
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+
+function ms(val: number | null | undefined, fallback = "—"): string {
+  if (val == null) return fallback;
+  if (val >= 1000) return `${(val / 1000).toFixed(2)}s`;
+  return `${val}ms`;
+}
+
+function PromptCell({ text }: { text: string }) {
+  return (
+    <span title={text} style={{ cursor: "default" }}>
+      {text.length > 60 ? text.slice(0, 60) + "…" : text}
+    </span>
+  );
+}
+
+// ── Performance Tab ───────────────────────────────────────────────────────────
+
+function PerformanceTab() {
+  const [entries, setEntries] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [selected, setSelected] = useState<any | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const load = useCallback((p = 1) => {
+    getPerfLog(p, 20).then((d) => {
+      setEntries(d.entries ?? []);
+      setTotal(d.total ?? 0);
+      setPage(d.page ?? 1);
+      setTotalPages(d.total_pages ?? 1);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => { load(1); }, [load]);
+
+  const handleSelect = async (entry: any) => {
+    if (selected?.id === entry.id) {
+      setSelected(null);
+      return;
+    }
+    setLoadingDetail(true);
+    try {
+      const detail = await getPerfEntry(entry.id);
+      setSelected(detail);
+    } catch {
+      setSelected(entry);
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
+  const thinking_ms = (e: any): number | null => {
+    if (!e.user_ttft_ms || !e.ollama_connect_ms) return null;
+    const v = e.user_ttft_ms - (e.search_ms ?? 0) - (e.prompt_build_ms ?? 0) - e.ollama_connect_ms;
+    return v > 0 ? v : null;
+  };
+
+  const total_ms = (e: any): number | null => {
+    if (e.search_ms == null && e.stream_total_ms == null) return null;
+    return (e.search_ms ?? 0) + (e.prompt_build_ms ?? 0) + (e.stream_total_ms ?? 0);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          Rolling window — {total} of 100 max entries
+        </span>
+        <button className="btn btn-sm" onClick={() => load(page)}>Refresh</button>
+      </div>
+
+      {entries.length === 0 ? (
+        <p style={{ color: "var(--text-muted)" }}>No prompts logged yet. Send a chat message to populate this log.</p>
+      ) : (
+        <>
+          <div style={{ overflowX: "auto" }}>
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>User</th>
+                  <th>Prompt</th>
+                  <th title="Search + prompt build time">Pre-LLM</th>
+                  <th title="Time to first user-visible text token">TTFT</th>
+                  <th title="Time model spent generating thinking tokens">Thinking</th>
+                  <th title="Total Ollama stream duration">Gen</th>
+                  <th title="Total end-to-end (search + prompt + gen)">Total</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => {
+                  const isSelected = selected?.id === e.id;
+                  const thinkMs = thinking_ms(e);
+                  return (
+                    <React.Fragment key={e.id}>
+                      <tr
+                        style={{
+                          cursor: "pointer",
+                          background: isSelected ? "color-mix(in srgb, var(--accent) 8%, var(--bg-card))" : undefined,
+                          opacity: e.refused ? 0.55 : 1,
+                        }}
+                        onClick={() => handleSelect(e)}
+                      >
+                        <td style={{ whiteSpace: "nowrap", fontSize: "0.8rem" }}>
+                          {new Date(e.timestamp).toLocaleTimeString()}
+                          <div style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>
+                            {new Date(e.timestamp).toLocaleDateString()}
+                          </div>
+                        </td>
+                        <td style={{ fontSize: "0.85rem" }}>{e.user_name ?? <span style={{ color: "var(--text-muted)" }}>anon</span>}</td>
+                        <td style={{ maxWidth: 240 }}>
+                          <PromptCell text={e.prompt} />
+                          {e.refused ? <span style={{ marginLeft: 6, fontSize: "0.7rem", color: "#f59e0b" }}>refused</span> : null}
+                        </td>
+                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                          {ms((e.search_ms ?? 0) + (e.prompt_build_ms ?? 0))}
+                        </td>
+                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                          {ms(e.user_ttft_ms)}
+                        </td>
+                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: thinkMs ? "var(--text-muted)" : undefined }}>
+                          {ms(thinkMs)}
+                        </td>
+                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                          {ms(e.stream_total_ms)}
+                        </td>
+                        <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                          {ms(total_ms(e))}
+                        </td>
+                        <td>
+                          <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>
+                            {isSelected ? "▲" : "▼"}
+                          </span>
+                        </td>
+                      </tr>
+                      {isSelected && (
+                        <tr>
+                          <td colSpan={9} style={{ padding: 0 }}>
+                            <PerfDetail entry={selected} loading={loadingDetail} thinkMs={thinkMs} totalMs={total_ms(e)} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {totalPages > 1 && (
+            <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", marginTop: "1rem" }}>
+              <button className="btn btn-sm" disabled={page <= 1} onClick={() => load(page - 1)}>← Prev</button>
+              <span style={{ padding: "4px 8px", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                Page {page} / {totalPages}
+              </span>
+              <button className="btn btn-sm" disabled={page >= totalPages} onClick={() => load(page + 1)}>Next →</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function PerfDetail({ entry, loading, thinkMs, totalMs }: {
+  entry: any;
+  loading: boolean;
+  thinkMs: number | null;
+  totalMs: number | null;
+}) {
+  if (loading) {
+    return (
+      <div style={{ padding: "1rem 1.5rem", background: "var(--bg)", borderTop: "1px solid var(--border)" }}>
+        Loading…
+      </div>
+    );
+  }
+
+  const row = (label: string, value: ReactNode) => (
+    <div style={{ display: "flex", gap: "1rem", padding: "4px 0", borderBottom: "1px solid color-mix(in srgb, var(--border) 40%, transparent)" }}>
+      <span style={{ width: 160, flexShrink: 0, color: "var(--text-muted)", fontSize: "0.82rem" }}>{label}</span>
+      <span style={{ fontSize: "0.85rem", wordBreak: "break-word" }}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "1rem 1.5rem", background: "var(--bg)", borderTop: "1px solid var(--border)" }}>
+      {/* Timing breakdown */}
+      <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+        {[
+          { label: "Search", val: entry.search_ms, color: "#60a5fa" },
+          { label: "Prompt build", val: entry.prompt_build_ms, color: "#818cf8" },
+          { label: "Ollama connect", val: entry.ollama_connect_ms, color: "#a78bfa" },
+          { label: "Thinking", val: thinkMs, color: "#f59e0b" },
+          { label: "TTFT (user)", val: entry.user_ttft_ms, color: "#34d399" },
+          { label: "Gen complete", val: entry.stream_total_ms, color: "#f472b6" },
+          { label: "Total", val: totalMs, color: "var(--text)", bold: true },
+        ].map(({ label, val, color, bold }) => (
+          <div key={label} style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 80 }}>
+            <span style={{ fontSize: "1.1rem", fontWeight: bold ? 700 : 500, color, fontVariantNumeric: "tabular-nums" }}>
+              {val != null ? (val >= 1000 ? `${(val / 1000).toFixed(2)}s` : `${val}ms`) : "—"}
+            </span>
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: 2 }}>{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Metadata */}
+      <div style={{ marginBottom: "1rem" }}>
+        {row("User", entry.user_name ?? <span style={{ color: "var(--text-muted)" }}>anonymous</span>)}
+        {row("Mode", entry.mode)}
+        {row("Refused", entry.refused ? "Yes" : "No")}
+        {row("Timestamp", new Date(entry.timestamp).toLocaleString())}
+      </div>
+
+      {/* Prompt */}
+      <div style={{ marginBottom: "1rem" }}>
+        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Prompt</div>
+        <div style={{ padding: "8px 12px", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, fontSize: "0.875rem", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          {entry.prompt}
+        </div>
+      </div>
+
+      {/* Thoughts */}
+      {entry.thoughts && (
+        <div style={{ marginBottom: "1rem" }}>
+          <div style={{ fontSize: "0.75rem", color: "#f59e0b", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Thinking</div>
+          <div style={{ padding: "8px 12px", background: "color-mix(in srgb, #f59e0b 6%, var(--bg-card))", border: "1px solid color-mix(in srgb, #f59e0b 20%, var(--border))", borderRadius: 6, fontSize: "0.82rem", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 300, overflowY: "auto", color: "var(--text-muted)" }}>
+            {entry.thoughts}
+          </div>
+        </div>
+      )}
+
+      {/* Response */}
+      {entry.response && (
+        <div>
+          <div style={{ fontSize: "0.75rem", color: "var(--success)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Response</div>
+          <div style={{ padding: "8px 12px", background: "color-mix(in srgb, var(--success) 4%, var(--bg-card))", border: "1px solid color-mix(in srgb, var(--success) 20%, var(--border))", borderRadius: 6, fontSize: "0.875rem", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 400, overflowY: "auto" }}>
+            {entry.response}
+          </div>
+        </div>
       )}
     </div>
   );

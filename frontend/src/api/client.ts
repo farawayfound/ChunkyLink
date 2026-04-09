@@ -171,6 +171,11 @@ export const buildDemoIndex = () =>
   request<any>("/admin/demo/build", { method: "POST" });
 export const getDemoStatus = () => request<any>("/admin/demo/status");
 
+// Admin — Performance log
+export const getPerfLog = (page = 1, pageSize = 20) =>
+  request<any>(`/admin/perf?page=${page}&page_size=${pageSize}`);
+export const getPerfEntry = (id: number) => request<any>(`/admin/perf/${id}`);
+
 export async function uploadDemoDocument(file: File): Promise<any> {
   const form = new FormData();
   form.append("file", file);

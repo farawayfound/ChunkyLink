@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """Chat routes — RAG-powered Q&A endpoints with streaming."""
+import asyncio
 import json
+import logging
 import random
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -12,6 +15,7 @@ from backend.auth.middleware import get_current_user
 from backend.chat.chat_service import ask_stream_events, ask_with_history_stream_events
 from backend.chat.ollama_client import health_check, list_models
 from backend.chat.suggestions import load_saved_suggestions
+from backend.database import get_db
 from backend.storage import get_user_index_dir
 from backend.logger import log_event
 
@@ -65,6 +69,59 @@ _CATEGORY_QUESTIONS: dict[str, list[str]] = {
     ],
 }
 
+_PERF_ROLLING_WINDOW = 100
+
+
+async def _write_perf_log(
+    *,
+    user_id: str | None,
+    user_name: str | None,
+    prompt: str,
+    mode: str,
+    perf: dict,
+    user_ttft_ms: int | None,
+    thoughts: str | None,
+    response: str | None,
+) -> None:
+    """Persist one chat perf record; trims the rolling window to 100 rows."""
+    try:
+        db = await get_db()
+        try:
+            await db.execute(
+                """INSERT INTO chat_perf_log
+                   (user_id, user_name, prompt, mode,
+                    search_ms, prompt_build_ms, ollama_connect_ms,
+                    ttft_ms, user_ttft_ms, stream_total_ms,
+                    thoughts, response, refused)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    user_id,
+                    user_name,
+                    prompt,
+                    mode,
+                    perf.get("search_ms"),
+                    perf.get("prompt_build_ms"),
+                    perf.get("ollama_connect_ms"),
+                    perf.get("ttft_ms"),
+                    user_ttft_ms,
+                    perf.get("stream_total_ms"),
+                    thoughts or None,
+                    response or None,
+                    1 if perf.get("refused") else 0,
+                ),
+            )
+            await db.commit()
+            # Rolling window: keep only the latest N rows
+            await db.execute(
+                f"DELETE FROM chat_perf_log WHERE id NOT IN "
+                f"(SELECT id FROM chat_perf_log ORDER BY id DESC LIMIT {_PERF_ROLLING_WINDOW})"
+            )
+            await db.commit()
+        finally:
+            await db.close()
+    except Exception:
+        logging.warning("chat: failed to write perf log", exc_info=True)
+
 
 @router.get("/health")
 async def chat_health():
@@ -83,35 +140,65 @@ async def chat_health():
 async def chat_ask(request: Request):
     """Ask Me Anything — RAG chat against demo/resume content.
 
-    Body: {"query": "...", "model": null, "level": null} (level defaults to CHAT_SEARCH_LEVEL, usually Quick)
-    Returns: Server-Sent Events: {"phase":"search"|"generate"}, {"text":"..."}, then [DONE].
+    Body: {"query": "...", "model": null, "level": null}
+    Returns: Server-Sent Events stream.
     """
     body = await request.json()
     query = body.get("query", "").strip()
     if not query:
         return {"error": "query is required"}
 
+    user = await get_current_user(request)
     model = body.get("model")
     settings = get_settings()
     level = body.get("level") or settings.CHAT_SEARCH_LEVEL
-
     kb_dir = settings.INDEXES_DIR / "demo"
 
     async def event_stream():
-        yield ": stream-open\n\n"
-        async for ev in ask_stream_events(
-            query=query,
-            kb_dir=kb_dir,
-            mode="ama",
-            model=model,
-            level=level,
-        ):
-            yield f"data: {json.dumps(ev)}\n\n"
-            if ev.get("phase") == "search":
-                yield ": kb-search\n\n"
-            elif ev.get("phase") == "generate":
-                yield ": llm-generate\n\n"
-        yield "data: [DONE]\n\n"
+        t0 = time.monotonic()
+        perf: dict = {}
+        thoughts_parts: list[str] = []
+        response_parts: list[str] = []
+        user_ttft_ms: int | None = None
+
+        try:
+            yield ": stream-open\n\n"
+            async for ev in ask_stream_events(
+                query=query,
+                kb_dir=kb_dir,
+                mode="ama",
+                model=model,
+                level=level,
+                perf_out=perf,
+            ):
+                if "thinking" in ev:
+                    thoughts_parts.append(ev["thinking"])
+                elif "text" in ev:
+                    if user_ttft_ms is None:
+                        user_ttft_ms = round((time.monotonic() - t0) * 1000)
+                    response_parts.append(ev["text"])
+                if ev.get("phase") == "search":
+                    yield ": kb-search\n\n"
+                elif ev.get("phase") == "generate":
+                    yield ": llm-generate\n\n"
+                yield f"data: {json.dumps(ev)}\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            user_id = user["user_id"] if user else None
+            user_name = (user.get("display_name") or user.get("github_username")) if user else None
+            try:
+                asyncio.create_task(_write_perf_log(
+                    user_id=user_id,
+                    user_name=user_name,
+                    prompt=query,
+                    mode="ama",
+                    perf=perf,
+                    user_ttft_ms=user_ttft_ms,
+                    thoughts="".join(thoughts_parts) or None,
+                    response="".join(response_parts) or None,
+                ))
+            except Exception:
+                logging.warning("chat: could not schedule perf log write", exc_info=True)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -141,34 +228,67 @@ async def chat_documents(request: Request):
     if not kb_dir.exists():
         return {"error": "No indexed documents found. Upload and index documents first."}
 
+    user_id = user["user_id"]
+    user_name = user.get("display_name") or user.get("github_username")
+    prompt_text = query or (messages[-1].get("content", "") if messages else "")
+
     async def event_stream():
-        yield ": stream-open\n\n"
-        if messages:
-            msgs = list(messages)
-            if query:
-                msgs.append({"role": "user", "content": query})
-            ev_iter = ask_with_history_stream_events(
-                messages=msgs,
-                kb_dir=kb_dir,
-                mode="documents",
-                model=model,
-                level=level,
-            )
-        else:
-            ev_iter = ask_stream_events(
-                query=query,
-                kb_dir=kb_dir,
-                mode="documents",
-                model=model,
-                level=level,
-            )
-        async for ev in ev_iter:
-            yield f"data: {json.dumps(ev)}\n\n"
-            if ev.get("phase") == "search":
-                yield ": kb-search\n\n"
-            elif ev.get("phase") == "generate":
-                yield ": llm-generate\n\n"
-        yield "data: [DONE]\n\n"
+        t0 = time.monotonic()
+        perf: dict = {}
+        thoughts_parts: list[str] = []
+        response_parts: list[str] = []
+        user_ttft_ms: int | None = None
+
+        try:
+            yield ": stream-open\n\n"
+            if messages:
+                msgs = list(messages)
+                if query:
+                    msgs.append({"role": "user", "content": query})
+                ev_iter = ask_with_history_stream_events(
+                    messages=msgs,
+                    kb_dir=kb_dir,
+                    mode="documents",
+                    model=model,
+                    level=level,
+                    perf_out=perf,
+                )
+            else:
+                ev_iter = ask_stream_events(
+                    query=query,
+                    kb_dir=kb_dir,
+                    mode="documents",
+                    model=model,
+                    level=level,
+                    perf_out=perf,
+                )
+            async for ev in ev_iter:
+                if "thinking" in ev:
+                    thoughts_parts.append(ev["thinking"])
+                elif "text" in ev:
+                    if user_ttft_ms is None:
+                        user_ttft_ms = round((time.monotonic() - t0) * 1000)
+                    response_parts.append(ev["text"])
+                if ev.get("phase") == "search":
+                    yield ": kb-search\n\n"
+                elif ev.get("phase") == "generate":
+                    yield ": llm-generate\n\n"
+                yield f"data: {json.dumps(ev)}\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            try:
+                asyncio.create_task(_write_perf_log(
+                    user_id=user_id,
+                    user_name=user_name,
+                    prompt=prompt_text,
+                    mode="documents",
+                    perf=perf,
+                    user_ttft_ms=user_ttft_ms,
+                    thoughts="".join(thoughts_parts) or None,
+                    response="".join(response_parts) or None,
+                ))
+            except Exception:
+                logging.warning("chat: could not schedule perf log write", exc_info=True)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -214,22 +334,16 @@ async def chat_search(request: Request):
 
 @router.get("/suggestions")
 async def chat_suggestions():
-    """Return suggested questions — prefers LLM-generated, falls back to templates.
-
-    LLM-generated suggestions are created after demo indexing using a larger
-    model and saved to suggestions.json.
-    """
+    """Return suggested questions — prefers LLM-generated, falls back to templates."""
     settings = get_settings()
     kb_dir = settings.INDEXES_DIR / "demo"
 
-    # Prefer LLM-generated suggestions if available
     saved = load_saved_suggestions(kb_dir)
     if saved:
         shuffled = list(saved)
         random.shuffle(shuffled)
         return {"suggestions": shuffled[:15]}
 
-    # Fallback: template-based generation from chunk metadata
     chunks_file = kb_dir / "detail" / "chunks.jsonl"
 
     if not chunks_file.exists():
@@ -247,7 +361,6 @@ async def chat_suggestions():
     if not chunks:
         return {"suggestions": _CATEGORY_QUESTIONS.get("general", [])[:4]}
 
-    # Extract entities and categories from indexed chunks
     orgs: set[str] = set()
     products: set[str] = set()
     topics: set[str] = set()

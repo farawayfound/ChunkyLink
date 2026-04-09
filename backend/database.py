@@ -45,10 +45,29 @@ CREATE TABLE IF NOT EXISTS activity_log (
     details TEXT
 );
 
+CREATE TABLE IF NOT EXISTS chat_perf_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    user_id TEXT,
+    user_name TEXT,
+    prompt TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'ama',
+    search_ms INTEGER,
+    prompt_build_ms INTEGER,
+    ollama_connect_ms INTEGER,
+    ttft_ms INTEGER,
+    user_ttft_ms INTEGER,
+    stream_total_ms INTEGER,
+    thoughts TEXT,
+    response TEXT,
+    refused INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_event ON activity_log(event);
 CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_perf_ts ON chat_perf_log(timestamp);
 """
 
 
@@ -58,7 +77,35 @@ def init_db_sync() -> None:
     settings.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(settings.DB_PATH))
     conn.executescript(_SCHEMA)
+    # Additive migrations for databases created before chat_perf_log existed
+    _migrate(conn)
     conn.close()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Apply schema additions to existing databases without losing data."""
+    existing = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "chat_perf_log" not in existing:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS chat_perf_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                user_id TEXT,
+                user_name TEXT,
+                prompt TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'ama',
+                search_ms INTEGER,
+                prompt_build_ms INTEGER,
+                ollama_connect_ms INTEGER,
+                ttft_ms INTEGER,
+                user_ttft_ms INTEGER,
+                stream_total_ms INTEGER,
+                thoughts TEXT,
+                response TEXT,
+                refused INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_perf_ts ON chat_perf_log(timestamp);
+        """)
 
 
 async def get_db() -> aiosqlite.Connection:

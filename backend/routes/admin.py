@@ -15,7 +15,7 @@ from backend.chat.ollama_client import (
     health_check, list_models, pull_model, delete_model,
     list_loaded_models, ensure_single_model_loaded,
     preload_model, unload_model,
-    get_model_context_window, get_inference_stats,
+    get_model_context_window, get_inference_stats, get_readiness_metrics,
 )
 from backend.config import get_settings
 from backend.storage import get_demo_upload_dir, get_demo_index_dir
@@ -206,6 +206,7 @@ async def admin_ollama(request: Request, user: dict = Depends(require_admin)):
         "loaded_names": loaded_names,
         "context_window": context_window,
         "inference_stats": get_inference_stats(),
+        "readiness": get_readiness_metrics(),
     }
 
 
@@ -298,6 +299,68 @@ async def admin_ollama_unload_model(
         return {"status": "unloaded", "name": name}
     except Exception as e:
         raise HTTPException(500, f"Failed to unload model: {e}")
+
+
+# ── Chat Performance Log ─────────────────────────────────────────────────────
+
+_PERF_PAGE_SIZE = 20
+_PERF_ROLLING_WINDOW = 100
+
+
+@router.get("/perf")
+async def admin_perf_log(
+    request: Request,
+    user: dict = Depends(require_admin),
+    page: int = 1,
+    page_size: int = _PERF_PAGE_SIZE,
+):
+    """Paginated chat performance log — rolling window of the latest 100 prompts."""
+    page = max(1, page)
+    page_size = max(1, min(page_size, _PERF_PAGE_SIZE))
+    offset = (page - 1) * page_size
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT id, timestamp, user_id, user_name, prompt, mode,
+                      search_ms, prompt_build_ms, ollama_connect_ms,
+                      ttft_ms, user_ttft_ms, stream_total_ms, refused
+               FROM chat_perf_log
+               ORDER BY id DESC
+               LIMIT ? OFFSET ?""",
+            (page_size, offset),
+        )
+        rows = await cursor.fetchall()
+        count_cursor = await db.execute("SELECT COUNT(*) as c FROM chat_perf_log")
+        total = dict(await count_cursor.fetchone())["c"]
+        return {
+            "entries": [dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": max(1, -(-total // page_size)),
+        }
+    finally:
+        await db.close()
+
+
+@router.get("/perf/{entry_id}")
+async def admin_perf_entry(
+    entry_id: int,
+    request: Request,
+    user: dict = Depends(require_admin),
+):
+    """Full detail for one perf log entry — includes thoughts and full response text."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM chat_perf_log WHERE id = ?", (entry_id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(404, "Entry not found")
+        return dict(row)
+    finally:
+        await db.close()
 
 
 # ── Demo KB Management ────────────────────────────────────────────────────────
