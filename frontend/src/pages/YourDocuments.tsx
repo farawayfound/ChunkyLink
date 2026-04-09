@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useDocuments } from "../hooks/useDocuments";
 import { useChat } from "../hooks/useChat";
 import { UploadZone } from "../components/UploadZone";
@@ -6,23 +6,37 @@ import { DocumentCard } from "../components/DocumentCard";
 import { ChatMessage } from "../components/ChatMessage";
 import { ChatInput } from "../components/ChatInput";
 import { ChatProgress } from "../components/ChatProgress";
+import { ChunkingConfig } from "../components/ChunkingConfig";
+import { IndexMetrics } from "../components/IndexMetrics";
 
 export function YourDocuments() {
-  const { documents, loading, indexStatus, refresh, upload, remove, startIndex, refreshIndex } =
-    useDocuments();
+  const {
+    documents, loading, indexStatus,
+    chunkingConfig, metrics, metricsLoading,
+    refresh, upload, remove,
+    startIndex, refreshIndex,
+    refreshConfig, saveConfig, refreshMetrics,
+  } = useDocuments();
   const { messages, streaming, phase, send, clear } = useChat("/chat/documents");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     refresh();
     refreshIndex();
-  }, [refresh, refreshIndex]);
+    refreshConfig();
+    refreshMetrics();
+  }, [refresh, refreshIndex, refreshConfig, refreshMetrics]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const jobStatus = indexStatus?.job?.status || "idle";
+
+  const handleStartIndex = useCallback(async () => {
+    await startIndex();
+    refreshMetrics();
+  }, [startIndex, refreshMetrics]);
 
   return (
     <div className="documents-page">
@@ -38,10 +52,18 @@ export function YourDocuments() {
           ))}
         </div>
 
+        <ChunkingConfig
+          config={chunkingConfig}
+          onSave={saveConfig}
+          disabled={jobStatus === "running"}
+        />
+
+        <IndexMetrics metrics={metrics} loading={metricsLoading} />
+
         <div className="index-controls">
           <button
             className="btn btn-primary btn-block"
-            onClick={startIndex}
+            onClick={handleStartIndex}
             disabled={jobStatus === "running" || documents.length === 0}
           >
             {jobStatus === "running" ? "Indexing..." : "Build Index"}

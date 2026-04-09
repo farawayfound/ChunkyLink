@@ -6,13 +6,19 @@ import {
   getDocumentStats,
   buildIndex,
   getIndexStatus,
+  getChunkingConfig,
+  updateChunkingConfig,
+  getTokenMetrics,
 } from "../api/client";
-import type { Document, IndexStatus } from "../types";
+import type { Document, IndexStatus, ChunkingConfig, TokenMetrics } from "../types";
 
 export function useDocuments() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(false);
   const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null);
+  const [chunkingConfig, setChunkingConfig] = useState<ChunkingConfig | null>(null);
+  const [metrics, setMetrics] = useState<TokenMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -56,5 +62,37 @@ export function useDocuments() {
     }
   }, []);
 
-  return { documents, loading, indexStatus, refresh, upload, remove, startIndex, refreshIndex };
+  const refreshConfig = useCallback(async () => {
+    try {
+      const cfg = await getChunkingConfig();
+      setChunkingConfig(cfg);
+    } catch {
+      // no-op
+    }
+  }, []);
+
+  const saveConfig = useCallback(async (config: Partial<ChunkingConfig>) => {
+    const saved = await updateChunkingConfig(config as Record<string, unknown>);
+    setChunkingConfig(saved);
+  }, []);
+
+  const refreshMetrics = useCallback(async () => {
+    setMetricsLoading(true);
+    try {
+      const m = await getTokenMetrics();
+      setMetrics(m);
+    } catch {
+      // no-op
+    } finally {
+      setMetricsLoading(false);
+    }
+  }, []);
+
+  return {
+    documents, loading, indexStatus,
+    chunkingConfig, metrics, metricsLoading,
+    refresh, upload, remove,
+    startIndex, refreshIndex,
+    refreshConfig, saveConfig, refreshMetrics,
+  };
 }

@@ -109,6 +109,14 @@ export const buildIndex = () => request<any>("/index/build", { method: "POST" })
 export const getIndexStatus = () => request<any>("/index/status");
 export const getIndexStats = () => request<any>("/index/stats");
 
+// Chunking config
+export const getChunkingConfig = () => request<any>("/documents/config");
+export const updateChunkingConfig = (config: Record<string, unknown>) =>
+  request<any>("/documents/config", { method: "PUT", body: JSON.stringify(config) });
+
+// Token metrics
+export const getTokenMetrics = () => request<any>("/documents/metrics");
+
 // Admin
 export const getAdminStats = () => request<any>("/admin/stats");
 export const getAdminUsers = () => request<any>("/admin/users");

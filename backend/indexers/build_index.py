@@ -44,11 +44,11 @@ def _promote_nlp_category(enriched: Dict) -> Dict:
     return enriched
 
 
-def _enrich(record: Dict, text: str, path: Path) -> Dict:
+def _enrich(record: Dict, text: str, path: Path, auto_tag: bool = None) -> Dict:
     text = sanitize_pii(text)
     if "text_raw" in record:
         record["text_raw"] = sanitize_pii(record["text_raw"])
-    return _promote_nlp_category(enrich_record_with_nlp(add_topic_metadata(record, path), text))
+    return _promote_nlp_category(enrich_record_with_nlp(add_topic_metadata(record, path), text, auto_tag=auto_tag))
 
 
 def split_glossary_entries(text: str) -> List[dict]:
@@ -105,12 +105,13 @@ def write_chunks_by_category(all_chunks: List[Dict], detail_dir: Path):
         raise
 
 
-def main(src_dir: str = None, out_dir: str = None):
+def main(src_dir: str = None, out_dir: str = None, config_overrides: dict = None):
     """Run the indexing pipeline.
 
     Args:
         src_dir: Source documents directory. Defaults to settings.UPLOADS_DIR / "demo".
         out_dir: Output index directory. Defaults to settings.INDEXES_DIR / "demo".
+        config_overrides: Optional dict of settings to override (e.g. per-user chunking config).
     """
     settings = get_settings()
     if src_dir is None:
@@ -160,6 +161,8 @@ def main(src_dir: str = None, out_dir: str = None):
         "ENABLE_CAMELOT": settings.ENABLE_CAMELOT,
         "ENABLE_AUTO_CLASSIFICATION": settings.ENABLE_AUTO_CLASSIFICATION,
     }
+    if config_overrides:
+        cfg.update({k: v for k, v in config_overrides.items() if k in cfg})
 
     # Remove old records for modified files
     for path in files_by_status['modified']:
@@ -259,19 +262,20 @@ def _process_file_inline(path: Path, prof: str, cfg: dict) -> dict:
     import fitz
 
     router_docs, router_chapters, detail = [], [], []
+    auto_tag = cfg.get("ENABLE_AUTO_TAGGING")
 
     try:
         if path.suffix.lower() == '.pptx':
             res = build_for_pptx(path, cfg)
             full_text = ' '.join([r['summary'] for r in res['router']])[:5000]
-            router_chapters.extend([_enrich(r, r.get('summary', ''), path) for r in res['router']])
+            router_chapters.extend([_enrich(r, r.get('summary', ''), path, auto_tag) for r in res['router']])
             router_docs.append(_enrich({
                 'route_id': f'{path.name}::doc', 'title': path.stem,
                 'scope_pages': [1, len(res['router'])],
                 'summary': summarize_for_router(full_text, cfg.get('MAX_ROUTER_SUMMARY_CHARS', 3000)),
                 'tags': [prof]
-            }, full_text, path))
-            detail.extend([_enrich(r, r.get('text_raw', r.get('text', '')), path) for r in res['detail']])
+            }, full_text, path, auto_tag))
+            detail.extend([_enrich(r, r.get('text_raw', r.get('text', '')), path, auto_tag) for r in res['detail']])
 
         elif path.suffix.lower() == '.pdf':
             if prof == 'glossary' or 'glossary' in path.name.lower():
@@ -290,44 +294,44 @@ def _process_file_inline(path: Path, prof: str, cfg: dict) -> dict:
                 }, path))
                 for c in gloss_chunks:
                     c['metadata']['doc_id'] = path.name
-                    detail.append(_enrich(c, c.get('text', ''), path))
+                    detail.append(_enrich(c, c.get('text', ''), path, auto_tag))
             else:
                 res = build_for_pdf(path, cfg)
                 full_text = ' '.join([r['summary'] for r in res['router']])[:4000]
-                router_chapters.extend([_enrich(r, r.get('summary', ''), path) for r in res['router']])
+                router_chapters.extend([_enrich(r, r.get('summary', ''), path, auto_tag) for r in res['router']])
                 router_docs.append(_enrich({
                     'route_id': f'{path.name}::doc', 'title': path.stem,
                     'scope_pages': [1, res['pages']],
                     'summary': summarize_for_router(full_text, cfg.get('MAX_ROUTER_SUMMARY_CHARS', 3000)),
                     'tags': [prof]
-                }, full_text, path))
-                detail.extend([_enrich(r, r.get('text_raw', r.get('text', '')), path) for r in res['detail']])
+                }, full_text, path, auto_tag))
+                detail.extend([_enrich(r, r.get('text_raw', r.get('text', '')), path, auto_tag) for r in res['detail']])
 
         elif path.suffix.lower() == '.txt':
             res = build_for_txt(path, cfg)
             full_text = res['router'][0]['summary'] if res['router'] else ''
-            router_chapters.extend([_enrich(r, r.get('summary', ''), path) for r in res['router']])
-            detail.extend([_enrich(r, r.get('text_raw', ''), path) for r in res['detail']])
+            router_chapters.extend([_enrich(r, r.get('summary', ''), path, auto_tag) for r in res['router']])
+            detail.extend([_enrich(r, r.get('text_raw', ''), path, auto_tag) for r in res['detail']])
             router_docs.append(_enrich({
                 'route_id': f'{path.name}::doc', 'title': path.stem,
                 'scope_pages': [1, 1], 'summary': full_text, 'tags': [prof]
-            }, full_text, path))
+            }, full_text, path, auto_tag))
 
         elif path.suffix.lower() == '.docx':
             res = build_for_docx(path, cfg)
             full_text = ' '.join([r['summary'] for r in res['router']])[:4000]
-            router_chapters.extend([_enrich(r, r.get('summary', ''), path) for r in res['router']])
-            detail.extend([_enrich(r, r.get('text_raw', ''), path) for r in res['detail']])
+            router_chapters.extend([_enrich(r, r.get('summary', ''), path, auto_tag) for r in res['router']])
+            detail.extend([_enrich(r, r.get('text_raw', ''), path, auto_tag) for r in res['detail']])
             router_docs.append(_enrich({
                 'route_id': f'{path.name}::doc', 'title': path.stem,
                 'scope_pages': [1, len(res['router'])],
                 'summary': summarize_for_router(full_text, cfg.get('MAX_ROUTER_SUMMARY_CHARS', 3000)),
                 'tags': [prof]
-            }, full_text, path))
+            }, full_text, path, auto_tag))
 
         elif path.suffix.lower() == '.csv':
             res = build_for_csv(path, cfg)
-            detail.extend([_enrich(r, r.get('text_raw', ''), path) for r in res['detail']])
+            detail.extend([_enrich(r, r.get('text_raw', ''), path, auto_tag) for r in res['detail']])
             sample_text = ' '.join([r.get('text_raw', '')[:200] for r in res['detail'][:5]])
             csv_type = res['detail'][0]['metadata'].get('csv_type', 'data') if res['detail'] else 'data'
             router_docs.append(_enrich({
@@ -335,7 +339,7 @@ def _process_file_inline(path: Path, prof: str, cfg: dict) -> dict:
                 'scope_pages': [1, len(res['detail'])],
                 'summary': f"CSV dataset with {len(res['detail'])} records (type: {csv_type})",
                 'tags': ['csv-data', csv_type]
-            }, sample_text, path))
+            }, sample_text, path, auto_tag))
 
     except Exception as ex:
         logging.exception(f'Error processing {path.name}: {ex}')

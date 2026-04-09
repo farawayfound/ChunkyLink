@@ -9,6 +9,8 @@ from backend.auth.middleware import require_auth
 from backend.storage import (
     list_user_documents, save_uploaded_file, delete_user_document,
     get_user_upload_dir, get_user_index_dir,
+    get_user_chunking_config, save_user_chunking_config,
+    get_user_token_metrics,
 )
 from backend.logger import log_event
 
@@ -90,3 +92,37 @@ async def document_stats(request: Request, user: dict = Depends(require_auth)):
         "indexed_chunks": chunk_count,
         "categories": categories,
     }
+
+
+@router.get("/config")
+async def get_chunking_config(request: Request, user: dict = Depends(require_auth)):
+    """Get the user's chunking configuration."""
+    return get_user_chunking_config(user["user_id"])
+
+
+@router.put("/config")
+async def update_chunking_config(request: Request, user: dict = Depends(require_auth)):
+    """Update the user's chunking configuration."""
+    body = await request.json()
+
+    if "chunk_size" in body:
+        val = int(body["chunk_size"])
+        if not (50 <= val <= 2000):
+            raise HTTPException(400, "chunk_size must be between 50 and 2000")
+    if "chunk_overlap" in body:
+        val = int(body["chunk_overlap"])
+        if not (0 <= val <= 500):
+            raise HTTPException(400, "chunk_overlap must be between 0 and 500")
+    if "chunk_overlap" in body and "chunk_size" in body:
+        if int(body["chunk_overlap"]) >= int(body["chunk_size"]):
+            raise HTTPException(400, "chunk_overlap must be less than chunk_size")
+
+    saved = save_user_chunking_config(user["user_id"], body)
+    log_event("chunking_config_update", user_id=user["user_id"])
+    return saved
+
+
+@router.get("/metrics")
+async def token_metrics(request: Request, user: dict = Depends(require_auth)):
+    """Get token usage metrics for the authenticated user."""
+    return get_user_token_metrics(user["user_id"])

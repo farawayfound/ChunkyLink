@@ -63,6 +63,83 @@ def delete_user_document(user_id: str, filename: str) -> bool:
     return False
 
 
+def get_user_chunking_config(user_id: str) -> dict:
+    """Load per-user chunking config, falling back to global defaults."""
+    settings = get_settings()
+    config_path = get_user_index_dir(user_id) / "chunking_config.json"
+    defaults = {
+        "chunk_size": settings.PARA_TARGET_TOKENS,
+        "chunk_overlap": settings.PARA_OVERLAP_TOKENS,
+        "enable_nlp_tagging": settings.ENABLE_AUTO_TAGGING,
+    }
+    if config_path.exists():
+        try:
+            import json
+            saved = json.loads(config_path.read_text(encoding="utf-8"))
+            defaults.update({k: v for k, v in saved.items() if k in defaults})
+        except Exception:
+            pass
+    return defaults
+
+
+def save_user_chunking_config(user_id: str, config: dict) -> dict:
+    """Persist per-user chunking config. Returns the saved config."""
+    import json
+    allowed_keys = {"chunk_size", "chunk_overlap", "enable_nlp_tagging"}
+    current = get_user_chunking_config(user_id)
+    for k, v in config.items():
+        if k in allowed_keys:
+            current[k] = v
+    config_path = get_user_index_dir(user_id) / "chunking_config.json"
+    config_path.write_text(json.dumps(current, indent=2), encoding="utf-8")
+    return current
+
+
+def get_user_token_metrics(user_id: str) -> dict:
+    """Compute token metrics: chunks in index, tokens in chunks, tokens in raw docs, savings."""
+    import json
+    index_dir = get_user_index_dir(user_id)
+    upload_dir = get_user_upload_dir(user_id)
+
+    chunk_count = 0
+    chunk_tokens = 0
+    chunks_file = index_dir / "detail" / "chunks.jsonl"
+    if chunks_file.exists():
+        for line in chunks_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                text = rec.get("text_raw", rec.get("text", ""))
+                chunk_count += 1
+                chunk_tokens += max(1, len(text) // 4)
+            except Exception:
+                continue
+
+    doc_tokens = 0
+    doc_count = 0
+    for f in sorted(upload_dir.iterdir()) if upload_dir.exists() else []:
+        if f.is_file() and not f.name.startswith("."):
+            doc_count += 1
+            try:
+                raw = f.read_bytes()
+                doc_tokens += max(1, len(raw) // 4)
+            except Exception:
+                continue
+
+    tokens_saved = max(0, doc_tokens - chunk_tokens)
+
+    return {
+        "document_count": doc_count,
+        "chunk_count": chunk_count,
+        "document_tokens": doc_tokens,
+        "chunk_tokens": chunk_tokens,
+        "tokens_saved": tokens_saved,
+        "savings_pct": round(tokens_saved / doc_tokens * 100, 1) if doc_tokens > 0 else 0,
+    }
+
+
 def delete_user_data(user_id: str) -> None:
     """Remove all data for a user (uploads + indexes)."""
     for base in [get_settings().UPLOADS_DIR / "users" / user_id,

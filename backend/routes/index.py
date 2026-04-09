@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Depends, BackgroundTasks
 
 from backend.auth.middleware import require_auth
-from backend.storage import get_user_upload_dir, get_user_index_dir
+from backend.storage import get_user_upload_dir, get_user_index_dir, get_user_chunking_config
 from backend.logger import log_event
 
 router = APIRouter()
@@ -17,12 +17,12 @@ router = APIRouter()
 _active_jobs: dict[str, dict] = {}
 
 
-def _run_index(user_id: str, src_dir: str, out_dir: str):
+def _run_index(user_id: str, src_dir: str, out_dir: str, config_overrides: dict | None = None):
     """Run indexing in background thread."""
     try:
         _active_jobs[user_id] = {"status": "running", "error": None}
         from backend.indexers.build_index import main as build_main
-        build_main(src_dir=src_dir, out_dir=out_dir)
+        build_main(src_dir=src_dir, out_dir=out_dir, config_overrides=config_overrides)
         _active_jobs[user_id] = {"status": "complete", "error": None}
         log_event("index_complete", user_id=user_id)
     except Exception as e:
@@ -56,8 +56,15 @@ async def build_index(
     if not files:
         raise HTTPException(400, "No documents to index. Upload files first.")
 
+    user_config = get_user_chunking_config(user_id)
+    config_overrides = {
+        "PARA_TARGET_TOKENS": user_config["chunk_size"],
+        "PARA_OVERLAP_TOKENS": user_config["chunk_overlap"],
+        "ENABLE_AUTO_TAGGING": user_config["enable_nlp_tagging"],
+    }
+
     log_event("index_start", user_id=user_id, file_count=len(files))
-    background_tasks.add_task(_run_index, user_id, src_dir, out_dir)
+    background_tasks.add_task(_run_index, user_id, src_dir, out_dir, config_overrides)
     _active_jobs[user_id] = {"status": "running", "error": None}
 
     return {"status": "started", "files": len(files)}

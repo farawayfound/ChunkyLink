@@ -61,3 +61,18 @@ export interface IndexStatus {
   job: { status: string; error: string | null };
   last_run: { completed: string; chunks: number; files: number } | null;
 }
+
+export interface ChunkingConfig {
+  chunk_size: number;
+  chunk_overlap: number;
+  enable_nlp_tagging: boolean;
+}
+
+export interface TokenMetrics {
+  document_count: number;
+  chunk_count: number;
+  document_tokens: number;
+  chunk_tokens: number;
+  tokens_saved: number;
+  savings_pct: number;
+}
