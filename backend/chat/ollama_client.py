@@ -299,6 +299,77 @@ async def ensure_single_model_loaded(name: str) -> None:
         _readiness_metrics["last_ensure_ms"] = round((time.monotonic() - t0) * 1000)
 
 
+class _ThinkTagParser:
+    """Parse ``<think>...</think>`` tags from raw response text.
+
+    Defaults to **text mode** — content is treated as visible answer text
+    unless an explicit ``<think>`` tag is encountered.  This means
+    non-reasoning models pass through cleanly while reasoning models that
+    embed ``<think>`` tags (older Ollama versions, or models Ollama does not
+    natively separate) are handled correctly.
+
+    Handles tags split across streaming chunks via an internal buffer.
+    """
+
+    _OPEN = "<think>"
+    _CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self._in_think = False
+        self._buf = ""
+
+    def feed(self, chunk: str):
+        """Feed a chunk and yield ``(kind, text)`` pairs."""
+        self._buf += chunk
+        while self._buf:
+            if self._in_think:
+                end = self._buf.find(self._CLOSE)
+                if end == -1:
+                    # Might have a partial closing tag at buffer tail
+                    for i in range(1, min(len(self._CLOSE), len(self._buf) + 1)):
+                        if self._buf.endswith(self._CLOSE[:i]):
+                            emit = self._buf[:-i]
+                            if emit:
+                                yield ("thinking", emit)
+                            self._buf = self._buf[-i:]
+                            return
+                    yield ("thinking", self._buf)
+                    self._buf = ""
+                else:
+                    if end > 0:
+                        yield ("thinking", self._buf[:end])
+                    self._buf = self._buf[end + len(self._CLOSE):]
+                    if self._buf.startswith("\n"):
+                        self._buf = self._buf[1:]
+                    self._in_think = False
+            else:
+                start = self._buf.find(self._OPEN)
+                if start == -1:
+                    # Might have a partial opening tag at buffer tail
+                    for i in range(1, min(len(self._OPEN), len(self._buf) + 1)):
+                        if self._buf.endswith(self._OPEN[:i]):
+                            emit = self._buf[:-i]
+                            if emit:
+                                yield ("text", emit)
+                            self._buf = self._buf[-i:]
+                            return
+                    yield ("text", self._buf)
+                    self._buf = ""
+                else:
+                    if start > 0:
+                        yield ("text", self._buf[:start])
+                    self._buf = self._buf[start + len(self._OPEN):]
+                    if self._buf.startswith("\n"):
+                        self._buf = self._buf[1:]
+                    self._in_think = True
+
+    def flush(self):
+        """Emit any remaining buffered content."""
+        if self._buf:
+            yield ("thinking" if self._in_think else "text", self._buf)
+            self._buf = ""
+
+
 async def generate_stream(
     prompt: str,
     system: str = "",
@@ -310,14 +381,21 @@ async def generate_stream(
     """Stream a completion from Ollama, yielding ``(kind, text)`` tuples.
 
     *kind* is ``"thinking"`` for reasoning-trace tokens or ``"text"`` for
-    visible answer tokens.  Ollama's ``think`` parameter is always enabled so
-    models that support structured thinking return the trace in a dedicated
-    ``thinking`` field.  Models without thinking support simply return
-    everything via the ``response`` field — the ``thinking`` field will be
-    absent / empty and all tuples will be ``("text", ...)``.
+    visible answer tokens.
+
+    Handles thinking in two complementary ways so every model works
+    regardless of Ollama version:
+
+    1. **Native separation** — recent Ollama versions auto-populate a
+       ``thinking`` field for models whose template declares thinking
+       support.  Content in that field is yielded as ``("thinking", ...)``.
+    2. **Tag fallback** — the ``response`` field is fed through
+       ``_ThinkTagParser`` which detects ``<think>...</think>`` tags
+       (e.g. from older Ollama or models it does not recognise).  Everything
+       outside those tags is yielded as ``("text", ...)``.
 
     If *latency* is a dict it is filled with:
-    - ollama_connect_ms: time until HTTP stream is ready (response headers OK)
+    - ollama_connect_ms: time until HTTP stream is ready
     - ttft_ms: time until first non-empty model token (thinking or text)
     - stream_total_ms: time until stream completes
     """
@@ -329,7 +407,6 @@ async def generate_stream(
         "model": model,
         "prompt": prompt,
         "stream": True,
-        "think": True,
         "keep_alive": -1,
         "options": {
             "temperature": temperature,
@@ -349,6 +426,7 @@ async def generate_stream(
     stream_timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
 
     async def _run_stream(client: httpx.AsyncClient) -> AsyncIterator[tuple[str, str]]:
+        parser = _ThinkTagParser()
         ttft_recorded = False
         async with client.stream("POST", url, json=payload, timeout=stream_timeout) as resp:
             resp.raise_for_status()
@@ -359,22 +437,32 @@ async def generate_stream(
                     continue
                 try:
                     chunk = json.loads(line)
-                    thinking = chunk.get("thinking", "")
-                    text = chunk.get("response", "")
-                    if (thinking or text) and latency is not None and not ttft_recorded:
+                    # Native thinking field (populated by Ollama for recognised
+                    # thinking models).  Use `or ""` to normalise None→"".
+                    native_thinking = chunk.get("thinking") or ""
+                    raw_text = chunk.get("response") or ""
+
+                    if (native_thinking or raw_text) and latency is not None and not ttft_recorded:
                         latency["ttft_ms"] = round((time.monotonic() - t_req) * 1000)
                         ttft_recorded = True
-                    if thinking:
-                        yield ("thinking", thinking)
-                    if text:
-                        yield ("text", text)
+
+                    if native_thinking:
+                        yield ("thinking", native_thinking)
+                    if raw_text:
+                        for pair in parser.feed(raw_text):
+                            yield pair
+
                     if chunk.get("done", False):
+                        for pair in parser.flush():
+                            yield pair
                         _capture_inference_stats(chunk)
                         if latency is not None:
                             latency["stream_total_ms"] = round((time.monotonic() - t_req) * 1000)
                         return
                 except Exception:
                     continue
+        for pair in parser.flush():
+            yield pair
         if latency is not None and latency.get("stream_total_ms") is None:
             latency["stream_total_ms"] = round((time.monotonic() - t_req) * 1000)
 
@@ -421,7 +509,6 @@ async def chat_stream(
         "model": model,
         "messages": messages,
         "stream": True,
-        "think": True,
         "keep_alive": -1,
         "options": {
             "temperature": temperature,
@@ -439,6 +526,7 @@ async def chat_stream(
     stream_timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
 
     async def _run_chat_stream(client: httpx.AsyncClient) -> AsyncIterator[tuple[str, str]]:
+        parser = _ThinkTagParser()
         ttft_recorded = False
         async with client.stream("POST", url, json=payload, timeout=stream_timeout) as resp:
             resp.raise_for_status()
@@ -449,23 +537,31 @@ async def chat_stream(
                     continue
                 try:
                     chunk = json.loads(line)
-                    msg = chunk.get("message", {})
-                    thinking = msg.get("thinking", "")
-                    text = msg.get("content", "")
-                    if (thinking or text) and latency is not None and not ttft_recorded:
+                    msg = chunk.get("message") or {}
+                    native_thinking = msg.get("thinking") or ""
+                    raw_text = msg.get("content") or ""
+
+                    if (native_thinking or raw_text) and latency is not None and not ttft_recorded:
                         latency["ttft_ms"] = round((time.monotonic() - t_req) * 1000)
                         ttft_recorded = True
-                    if thinking:
-                        yield ("thinking", thinking)
-                    if text:
-                        yield ("text", text)
+
+                    if native_thinking:
+                        yield ("thinking", native_thinking)
+                    if raw_text:
+                        for pair in parser.feed(raw_text):
+                            yield pair
+
                     if chunk.get("done", False):
+                        for pair in parser.flush():
+                            yield pair
                         _capture_inference_stats(chunk)
                         if latency is not None:
                             latency["stream_total_ms"] = round((time.monotonic() - t_req) * 1000)
                         return
                 except Exception:
                     continue
+        for pair in parser.flush():
+            yield pair
         if latency is not None and latency.get("stream_total_ms") is None:
             latency["stream_total_ms"] = round((time.monotonic() - t_req) * 1000)
 
