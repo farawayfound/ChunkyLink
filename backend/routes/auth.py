@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Auth routes — GitHub OAuth + invite code login."""
-from datetime import datetime, timezone
+"""Auth routes — GitHub OAuth + invite code login + access requests."""
+import re
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from backend.auth.github_oauth import get_authorize_url, validate_state, exchange_code
-from backend.auth.invite_codes import validate_invite, redeem_invite
+from backend.auth.invite_codes import validate_invite, redeem_invite, create_invite
 from backend.auth.middleware import (
     create_session, get_current_user, require_auth, destroy_session, SESSION_COOKIE,
 )
 from backend.config import get_settings
 from backend.database import get_db
 from backend.logger import log_event
+from backend.services.email import send_invite_email
 
 router = APIRouter()
 
@@ -99,6 +101,73 @@ async def invite_login(request: Request):
             httponly=True, samesite="lax", max_age=30 * 86400,
         )
         return response
+    finally:
+        await db.close()
+
+
+@router.post("/request-access")
+async def request_access(request: Request):
+    """Accept an email address and send an invite code to it."""
+    body = await request.json()
+    email = body.get("email", "").strip().lower()
+
+    if not email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return JSONResponse({"error": "A valid email address is required"}, status_code=400)
+
+    client_ip = request.client.host if request.client else ""
+    settings = get_settings()
+
+    db = await get_db()
+    try:
+        # Rate limit: max 3 access requests per email per day
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM access_requests WHERE email = ? AND created_at > ?",
+            (email, cutoff),
+        )
+        row = await cursor.fetchone()
+        if row and row[0] >= 3:
+            return JSONResponse(
+                {"error": "Too many requests for this email. Please try again later."},
+                status_code=429,
+            )
+
+        # Create a single-use invite code that expires in 7 days
+        expires = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        code = await create_invite(
+            db, created_by="system:request-access", label=f"Requested by {email}",
+            max_uses=1, expires_at=expires,
+        )
+
+        # Record the request
+        await db.execute(
+            "INSERT INTO access_requests (email, invite_code, ip_address, status) VALUES (?, ?, ?, ?)",
+            (email, code, client_ip, "pending"),
+        )
+        await db.commit()
+
+        # Send the email
+        sent = await send_invite_email(email, code)
+        status = "sent" if sent else "email_failed"
+        await db.execute(
+            "UPDATE access_requests SET status = ? WHERE invite_code = ?",
+            (status, code),
+        )
+        await db.commit()
+
+        log_event("access_requested", email=email, code_prefix=code[:4], sent=sent)
+
+        if not sent and not settings.SMTP_HOST:
+            # SMTP not configured — return the code directly (dev mode)
+            return JSONResponse({"ok": True, "message": "Access code generated", "code": code})
+
+        if not sent:
+            return JSONResponse(
+                {"error": "Failed to send email. Please try again later."},
+                status_code=500,
+            )
+
+        return JSONResponse({"ok": True, "message": "Access code sent! Check your email."})
     finally:
         await db.close()
 

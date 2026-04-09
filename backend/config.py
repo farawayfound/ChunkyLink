@@ -35,6 +35,18 @@ class Settings:
         self.GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
         self.GITHUB_ALLOWED_ADMINS = [u.strip() for u in os.getenv("GITHUB_ALLOWED_ADMINS", "").split(",") if u.strip()]
 
+        # ── SMTP (for invite code emails) ──
+        self.SMTP_HOST = os.getenv("SMTP_HOST", "")
+        self.SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+        self.SMTP_USER = os.getenv("SMTP_USER", "")
+        self.SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+        self.SMTP_FROM = os.getenv("SMTP_FROM", "")
+        self.SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
+
+        # ── AMA Rate Limiting ──
+        self.AMA_RATE_LIMIT = int(os.getenv("AMA_RATE_LIMIT", "2"))
+        self.AMA_RATE_WINDOW = int(os.getenv("AMA_RATE_WINDOW", "3600"))
+
         # ── Demo ──
         self.OWNER_NAME = os.getenv("OWNER_NAME", "the owner")
 

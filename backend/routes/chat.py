@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
 from backend.config import get_settings
 from backend.auth.middleware import get_current_user
@@ -20,6 +20,35 @@ from backend.storage import get_user_index_dir
 from backend.logger import log_event
 
 router = APIRouter()
+
+# ── In-memory IP rate tracking for AMA questions ───────────────────────────────
+_ip_question_log: dict[str, list[float]] = {}
+
+
+def _check_rate_limit(ip: str) -> tuple[int, bool]:
+    """Check and record a question for the given IP.
+
+    Returns (questions_used, is_blocked).
+    Authenticated users bypass the check — call this only for anonymous users.
+    """
+    settings = get_settings()
+    now = time.time()
+    window = settings.AMA_RATE_WINDOW
+    limit = settings.AMA_RATE_LIMIT
+
+    timestamps = _ip_question_log.get(ip, [])
+    # Prune entries outside the window
+    timestamps = [t for t in timestamps if now - t < window]
+    count = len(timestamps)
+
+    if count >= limit:
+        _ip_question_log[ip] = timestamps
+        return count, True
+
+    # Record this question
+    timestamps.append(now)
+    _ip_question_log[ip] = timestamps
+    return count + 1, False
 
 # ── Question templates for dynamic suggestion generation ──────────────────────
 _ORG_TEMPLATES = [
@@ -123,6 +152,26 @@ async def _write_perf_log(
         logging.warning("chat: failed to write perf log", exc_info=True)
 
 
+@router.get("/quota")
+async def chat_quota(request: Request):
+    """Return how many AMA questions this IP has remaining."""
+    user = await get_current_user(request)
+    settings = get_settings()
+    if user:
+        return {"unlimited": True, "questions_used": 0, "limit": settings.AMA_RATE_LIMIT}
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    timestamps = _ip_question_log.get(client_ip, [])
+    timestamps = [t for t in timestamps if now - t < settings.AMA_RATE_WINDOW]
+    return {
+        "unlimited": False,
+        "questions_used": len(timestamps),
+        "limit": settings.AMA_RATE_LIMIT,
+        "remaining": max(0, settings.AMA_RATE_LIMIT - len(timestamps)),
+    }
+
+
 @router.get("/health")
 async def chat_health():
     """Check Ollama connectivity and model availability."""
@@ -149,6 +198,22 @@ async def chat_ask(request: Request):
         return {"error": "query is required"}
 
     user = await get_current_user(request)
+
+    # Rate limit anonymous users
+    if not user:
+        client_ip = request.client.host if request.client else "unknown"
+        questions_used, blocked = _check_rate_limit(client_ip)
+        if blocked:
+            return JSONResponse(
+                {
+                    "error": "rate_limited",
+                    "message": "You've reached the question limit. Request access to continue.",
+                    "questions_used": questions_used,
+                    "limit": get_settings().AMA_RATE_LIMIT,
+                },
+                status_code=429,
+            )
+
     model = body.get("model")
     settings = get_settings()
     level = body.get("level") or settings.CHAT_SEARCH_LEVEL

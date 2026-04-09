@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS chat_perf_log (
     refused INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS access_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    invite_code TEXT,
+    ip_address TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    status TEXT NOT NULL DEFAULT 'pending'
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_event ON activity_log(event);
@@ -105,6 +114,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 refused INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_perf_ts ON chat_perf_log(timestamp);
+        """)
+    if "access_requests" not in existing:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS access_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL,
+                invite_code TEXT,
+                ip_address TEXT,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                status TEXT NOT NULL DEFAULT 'pending'
+            );
         """)
 
 

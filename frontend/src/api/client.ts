@@ -18,6 +18,11 @@ export const getAuthStatus = () => request<any>("/auth/status");
 export const loginWithInvite = (code: string) =>
   request<any>("/auth/invite", { method: "POST", body: JSON.stringify({ code }) });
 export const logout = () => request<any>("/auth/logout", { method: "POST" });
+export const requestAccess = (email: string) =>
+  request<any>("/auth/request-access", { method: "POST", body: JSON.stringify({ email }) });
+
+// Chat quota
+export const getChatQuota = () => request<any>("/chat/quota");
 
 // Chat
 export const getChatHealth = () => request<any>("/chat/health");
