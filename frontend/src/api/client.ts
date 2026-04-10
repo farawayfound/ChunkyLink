@@ -117,6 +117,11 @@ export const updateChunkingConfig = (config: Record<string, unknown>) =>
 // Token metrics
 export const getTokenMetrics = () => request<any>("/documents/metrics");
 
+// User agent config (system prompt/rules for Your Documents)
+export const getAgentConfig = () => request<any>("/documents/agent-config");
+export const updateAgentConfig = (body: Record<string, unknown>) =>
+  request<any>("/documents/agent-config", { method: "PUT", body: JSON.stringify(body) });
+
 // Admin
 export const getAdminStats = () => request<any>("/admin/stats");
 export const getAdminUsers = () => request<any>("/admin/users");

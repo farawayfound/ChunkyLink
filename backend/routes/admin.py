@@ -305,6 +305,7 @@ async def admin_ollama_set_model(
         raise HTTPException(400, "Model name is required")
     settings = get_settings()
     settings.OLLAMA_MODEL = name
+    settings.save_admin_config()
     log_event("ollama_model_changed", user_id=user["user_id"], model=name)
     background_tasks.add_task(ensure_single_model_loaded, name)
     return {"status": "ok", "model": name, "preloading": True}
@@ -361,6 +362,7 @@ async def admin_ollama_load_model(
         raise HTTPException(400, "Model name is required")
     settings = get_settings()
     settings.OLLAMA_MODEL = name
+    settings.save_admin_config()
     log_event("ollama_model_loaded", user_id=user["user_id"], model=name)
     background_tasks.add_task(ensure_single_model_loaded, name)
     return {"status": "loading", "name": name}
@@ -471,6 +473,8 @@ async def admin_get_config(request: Request, user: dict = Depends(require_admin)
         "num_ctx": settings.OLLAMA_NUM_CTX,
         "system_prompt": settings.SYSTEM_PROMPT_OVERRIDE or "",
         "system_rules": settings.SYSTEM_RULES_OVERRIDE or "",
+        "ama_system_prompt": settings.AMA_SYSTEM_PROMPT_OVERRIDE or "",
+        "ama_system_rules": settings.AMA_SYSTEM_RULES_OVERRIDE or "",
         "model": settings.OLLAMA_MODEL,
     }
 
@@ -512,6 +516,16 @@ async def admin_update_config(
         settings.SYSTEM_RULES_OVERRIDE = val or None
         changed.append("system_rules")
 
+    if "ama_system_prompt" in body:
+        val = (body["ama_system_prompt"] or "").strip()
+        settings.AMA_SYSTEM_PROMPT_OVERRIDE = val or None
+        changed.append("ama_system_prompt")
+
+    if "ama_system_rules" in body:
+        val = (body["ama_system_rules"] or "").strip()
+        settings.AMA_SYSTEM_RULES_OVERRIDE = val or None
+        changed.append("ama_system_rules")
+
     if changed:
         settings.save_admin_config()
         log_event("admin_config_updated", user_id=user["user_id"], changed=",".join(changed))
@@ -527,6 +541,8 @@ async def admin_update_config(
         "num_ctx": settings.OLLAMA_NUM_CTX,
         "system_prompt": settings.SYSTEM_PROMPT_OVERRIDE or "",
         "system_rules": settings.SYSTEM_RULES_OVERRIDE or "",
+        "ama_system_prompt": settings.AMA_SYSTEM_PROMPT_OVERRIDE or "",
+        "ama_system_rules": settings.AMA_SYSTEM_RULES_OVERRIDE or "",
         "reloading": reload_model,
     }
 

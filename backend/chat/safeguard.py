@@ -32,27 +32,44 @@ def _system_prompt_cached(mode: str, owner: str) -> str:
     )
 
 
-def get_system_prompt(mode: str = "ama") -> str:
+def get_system_prompt(
+    mode: str = "ama",
+    *,
+    user_prompt: str | None = None,
+    user_rules: str | None = None,
+) -> str:
     """Return the system prompt for a given chat mode.
 
     Modes:
-        ama       — Ask Me Anything (demo/resume content)
-        documents — User's own uploaded documents
-
-    If SYSTEM_PROMPT_OVERRIDE is set via the admin Configuration tab it replaces
-    the built-in prompt.  SYSTEM_RULES_OVERRIDE is appended to whichever base
-    prompt is active.
+        ama       — Ask Me Anything (demo/resume content).
+                    Uses AMA_SYSTEM_PROMPT_OVERRIDE / AMA_SYSTEM_RULES_OVERRIDE.
+        documents — User's own uploaded documents.
+                    Uses per-user overrides (user_prompt/user_rules) when set,
+                    otherwise falls back to admin defaults
+                    (SYSTEM_PROMPT_OVERRIDE / SYSTEM_RULES_OVERRIDE).
     """
     settings = get_settings()
     owner = settings.OWNER_NAME or "the document author"
 
-    if settings.SYSTEM_PROMPT_OVERRIDE:
-        base = settings.SYSTEM_PROMPT_OVERRIDE
+    if mode == "ama":
+        # AMA agent — completely separate overrides
+        if settings.AMA_SYSTEM_PROMPT_OVERRIDE:
+            base = settings.AMA_SYSTEM_PROMPT_OVERRIDE
+        else:
+            base = _system_prompt_cached(mode, owner)
+        rules = settings.AMA_SYSTEM_RULES_OVERRIDE
     else:
-        base = _system_prompt_cached(mode, owner)
+        # Documents agent — per-user overrides take priority, then admin defaults
+        if user_prompt:
+            base = user_prompt
+        elif settings.SYSTEM_PROMPT_OVERRIDE:
+            base = settings.SYSTEM_PROMPT_OVERRIDE
+        else:
+            base = _system_prompt_cached(mode, owner)
+        rules = user_rules or settings.SYSTEM_RULES_OVERRIDE
 
-    if settings.SYSTEM_RULES_OVERRIDE:
-        return base.rstrip() + "\n\n" + settings.SYSTEM_RULES_OVERRIDE
+    if rules:
+        return base.rstrip() + "\n\n" + rules
 
     return base
 

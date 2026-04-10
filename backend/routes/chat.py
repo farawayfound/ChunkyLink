@@ -16,7 +16,7 @@ from backend.chat.chat_service import ask_stream_events, ask_with_history_stream
 from backend.chat.ollama_client import health_check, list_models
 from backend.chat.suggestions import load_saved_suggestions
 from backend.database import get_db
-from backend.storage import get_user_index_dir
+from backend.storage import get_user_index_dir, get_user_agent_config
 from backend.logger import log_event
 
 router = APIRouter()
@@ -293,6 +293,11 @@ async def chat_documents(request: Request):
     if not kb_dir.exists():
         return {"error": "No indexed documents found. Upload and index documents first."}
 
+    # Load per-user agent config (system prompt/rules overrides)
+    agent_cfg = get_user_agent_config(user["user_id"])
+    user_prompt = agent_cfg.get("system_prompt") or None
+    user_rules = agent_cfg.get("system_rules") or None
+
     user_id = user["user_id"]
     user_name = user.get("display_name") or user.get("github_username")
     prompt_text = query or (messages[-1].get("content", "") if messages else "")
@@ -317,6 +322,8 @@ async def chat_documents(request: Request):
                     model=model,
                     level=level,
                     perf_out=perf,
+                    user_prompt=user_prompt,
+                    user_rules=user_rules,
                 )
             else:
                 ev_iter = ask_stream_events(
@@ -326,6 +333,8 @@ async def chat_documents(request: Request):
                     model=model,
                     level=level,
                     perf_out=perf,
+                    user_prompt=user_prompt,
+                    user_rules=user_rules,
                 )
             async for ev in ev_iter:
                 if "thinking" in ev:

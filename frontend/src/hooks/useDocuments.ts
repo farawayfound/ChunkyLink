@@ -9,6 +9,8 @@ import {
   getChunkingConfig,
   updateChunkingConfig,
   getTokenMetrics,
+  getAgentConfig,
+  updateAgentConfig,
 } from "../api/client";
 import type { Document, IndexStatus, ChunkingConfig, TokenMetrics } from "../types";
 
@@ -19,6 +21,12 @@ export function useDocuments() {
   const [chunkingConfig, setChunkingConfig] = useState<ChunkingConfig | null>(null);
   const [metrics, setMetrics] = useState<TokenMetrics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(false);
+  const [agentConfig, setAgentConfig] = useState<{
+    system_prompt: string;
+    system_rules: string;
+    default_system_prompt: string;
+    default_system_rules: string;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -88,11 +96,29 @@ export function useDocuments() {
     }
   }, []);
 
+  const refreshAgentConfig = useCallback(async () => {
+    try {
+      const cfg = await getAgentConfig();
+      setAgentConfig(cfg);
+    } catch {
+      // no-op
+    }
+  }, []);
+
+  const saveAgentConfig = useCallback(async (config: Record<string, unknown>) => {
+    const saved = await updateAgentConfig(config);
+    // Re-fetch to get defaults too
+    await refreshAgentConfig();
+    return saved;
+  }, [refreshAgentConfig]);
+
   return {
     documents, loading, indexStatus,
     chunkingConfig, metrics, metricsLoading,
+    agentConfig,
     refresh, upload, remove,
     startIndex, refreshIndex,
     refreshConfig, saveConfig, refreshMetrics,
+    refreshAgentConfig, saveAgentConfig,
   };
 }

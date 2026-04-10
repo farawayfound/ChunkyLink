@@ -40,7 +40,7 @@ const TAB_LABELS: Record<Tab, string> = {
   users: "Users",
   activity: "Activity",
   ollama: "Ollama",
-  demokb: "Demo KB",
+  demokb: "AMA KB",
   perf: "Performance",
   configuration: "Configuration",
 };
@@ -1115,12 +1115,12 @@ function ConfigurationTab() {
         </div>
       </div>
 
-      {/* ── System Prompt ── */}
+      {/* ── Default System Prompt (Your Documents only) ── */}
       <div style={sectionStyle}>
-        <h4 style={{ margin: "0 0 0.4rem" }}>System Prompt</h4>
+        <h4 style={{ margin: "0 0 0.4rem" }}>Default System Prompt (Your Documents)</h4>
         <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 0.75rem" }}>
-          Overrides the built-in system prompt sent to the model on every request.
-          Leave blank to use the default prompt.
+          Default system prompt for the <strong>Your Documents</strong> agent. Users can override this
+          per-account from their documents page. Does not affect the AMA agent (configure that in the AMA KB tab).
         </p>
         <label style={labelStyle}>Custom system prompt</label>
         <textarea
@@ -1156,12 +1156,12 @@ function ConfigurationTab() {
         )}
       </div>
 
-      {/* ── Rules ── */}
+      {/* ── Default Rules (Your Documents only) ── */}
       <div style={sectionStyle}>
-        <h4 style={{ margin: "0 0 0.4rem" }}>Additional Rules</h4>
+        <h4 style={{ margin: "0 0 0.4rem" }}>Default Rules (Your Documents)</h4>
         <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 0.75rem" }}>
-          Appended after the system prompt (whether default or custom). Useful for adding
-          extra constraints or persona instructions without replacing the whole prompt.
+          Default rules appended to the Your Documents agent prompt. Users can override these
+          per-account from their documents page. Does not affect the AMA agent.
         </p>
         <label style={labelStyle}>Rules / extra instructions</label>
         <textarea
@@ -1227,6 +1227,14 @@ function DemoKBTab() {
   const [editingQaId, setEditingQaId] = useState<string | null>(null);
   const [qaForm, setQaForm] = useState<any>({ type: "qa", question: "", answer: "", situation: "", task: "", action: "", result: "" });
 
+  // AMA System Prompt & Rules state
+  const [amaPrompt, setAmaPrompt] = useState("");
+  const [amaPromptDraft, setAmaPromptDraft] = useState("");
+  const [amaRules, setAmaRules] = useState("");
+  const [amaRulesDraft, setAmaRulesDraft] = useState("");
+  const [amaSaving, setAmaSaving] = useState<string | null>(null);
+  const [amaSuccess, setAmaSuccess] = useState<string | null>(null);
+
   const loadDocs = useCallback(() => {
     getDemoDocuments().then((d) => setDocs(d.documents)).catch(() => {});
   }, []);
@@ -1243,12 +1251,22 @@ function DemoKBTab() {
     getDemoQA().then((d) => setQaItems(d.items || [])).catch(() => {});
   }, []);
 
+  const loadAmaConfig = useCallback(() => {
+    getAdminConfig().then((d) => {
+      setAmaPrompt(d.ama_system_prompt ?? "");
+      setAmaPromptDraft(d.ama_system_prompt ?? "");
+      setAmaRules(d.ama_system_rules ?? "");
+      setAmaRulesDraft(d.ama_system_rules ?? "");
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadDocs();
     loadStatus();
     loadSuggestions();
     loadQA();
-  }, [loadDocs, loadStatus, loadSuggestions, loadQA]);
+    loadAmaConfig();
+  }, [loadDocs, loadStatus, loadSuggestions, loadQA, loadAmaConfig]);
 
   useEffect(() => {
     if (status.job?.status === "running") {
@@ -1391,6 +1409,69 @@ function DemoKBTab() {
       setQaItems(res.items);
     } catch (err: any) {
       setError(err.message || "Failed to delete Q&A item");
+    }
+  };
+
+  const amaFlash = (msg: string) => {
+    setAmaSuccess(msg);
+    setTimeout(() => setAmaSuccess(null), 3000);
+  };
+
+  const handleSaveAmaPrompt = async () => {
+    setAmaSaving("prompt");
+    setError(null);
+    try {
+      await updateAdminConfig({ ama_system_prompt: amaPromptDraft });
+      setAmaPrompt(amaPromptDraft);
+      amaFlash("AMA system prompt saved.");
+    } catch (e: any) {
+      setError(e.message || "Failed to save AMA prompt");
+    } finally {
+      setAmaSaving(null);
+    }
+  };
+
+  const handleResetAmaPrompt = async () => {
+    setAmaSaving("prompt");
+    setError(null);
+    try {
+      await updateAdminConfig({ ama_system_prompt: "" });
+      setAmaPrompt("");
+      setAmaPromptDraft("");
+      amaFlash("AMA system prompt reset to built-in default.");
+    } catch (e: any) {
+      setError(e.message || "Failed to reset AMA prompt");
+    } finally {
+      setAmaSaving(null);
+    }
+  };
+
+  const handleSaveAmaRules = async () => {
+    setAmaSaving("rules");
+    setError(null);
+    try {
+      await updateAdminConfig({ ama_system_rules: amaRulesDraft });
+      setAmaRules(amaRulesDraft);
+      amaFlash("AMA rules saved.");
+    } catch (e: any) {
+      setError(e.message || "Failed to save AMA rules");
+    } finally {
+      setAmaSaving(null);
+    }
+  };
+
+  const handleClearAmaRules = async () => {
+    setAmaSaving("rules");
+    setError(null);
+    try {
+      await updateAdminConfig({ ama_system_rules: "" });
+      setAmaRules("");
+      setAmaRulesDraft("");
+      amaFlash("AMA rules cleared.");
+    } catch (e: any) {
+      setError(e.message || "Failed to clear AMA rules");
+    } finally {
+      setAmaSaving(null);
     }
   };
 
@@ -1784,6 +1865,103 @@ function DemoKBTab() {
             onClick={() => { resetQaForm(); setShowQaForm(true); }}
           >Add Q&A / STAR Story</button>
         )}
+      </div>
+
+      {/* ── AMA System Prompt ── */}
+      <div style={sectionStyle}>
+        <h4 style={{ margin: "0 0 0.4rem" }}>AMA System Prompt</h4>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 0.75rem" }}>
+          Overrides the built-in system prompt for the <strong>Ask Me Anything</strong> agent only.
+          This is separate from the default prompt used by the Your Documents agent.
+          Leave blank to use the built-in AMA default.
+        </p>
+        {amaSuccess && (
+          <div
+            style={{
+              marginBottom: "0.75rem",
+              padding: "8px 12px",
+              background: "color-mix(in srgb, var(--success) 12%, var(--bg-card))",
+              border: "1px solid color-mix(in srgb, var(--success) 30%, var(--border))",
+              borderRadius: "6px",
+              color: "var(--success)",
+              fontSize: "0.85rem",
+            }}
+          >
+            {amaSuccess}
+          </div>
+        )}
+        <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+          Custom AMA system prompt
+        </label>
+        <textarea
+          style={textareaStyle}
+          value={amaPromptDraft}
+          onChange={(e) => setAmaPromptDraft(e.target.value)}
+          placeholder="Leave blank to use the built-in AMA default prompt…"
+          spellCheck={false}
+        />
+        <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.75rem" }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveAmaPrompt}
+            disabled={amaSaving === "prompt" || amaPromptDraft === amaPrompt}
+          >
+            {amaSaving === "prompt" ? "Saving…" : "Save AMA Prompt"}
+          </button>
+          {amaPrompt && (
+            <button
+              className="btn btn-sm"
+              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+              onClick={handleResetAmaPrompt}
+              disabled={amaSaving === "prompt"}
+            >
+              Reset to default
+            </button>
+          )}
+        </div>
+        {!amaPrompt && (
+          <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+            Using built-in AMA default prompt.
+          </div>
+        )}
+      </div>
+
+      {/* ── AMA Rules ── */}
+      <div style={sectionStyle}>
+        <h4 style={{ margin: "0 0 0.4rem" }}>AMA Rules</h4>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 0.75rem" }}>
+          Extra rules appended after the AMA system prompt. These only affect the Ask Me Anything agent
+          and are separate from rules configured for the Your Documents agent.
+        </p>
+        <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+          AMA rules / extra instructions
+        </label>
+        <textarea
+          style={textareaStyle}
+          value={amaRulesDraft}
+          onChange={(e) => setAmaRulesDraft(e.target.value)}
+          placeholder={"e.g.\n- Keep answers under 200 words.\n- Always mention relevant project links."}
+          spellCheck={false}
+        />
+        <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.75rem" }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveAmaRules}
+            disabled={amaSaving === "rules" || amaRulesDraft === amaRules}
+          >
+            {amaSaving === "rules" ? "Saving…" : "Save AMA Rules"}
+          </button>
+          {amaRules && (
+            <button
+              className="btn btn-sm"
+              style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+              onClick={handleClearAmaRules}
+              disabled={amaSaving === "rules"}
+            >
+              Clear rules
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

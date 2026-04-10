@@ -40,6 +40,8 @@ async def ask_stream_events(
     model: str | None = None,
     level: str | None = None,
     perf_out: dict | None = None,
+    user_prompt: str | None = None,
+    user_rules: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """RAG pipeline yielding SSE-friendly dicts: {"phase": "search"|"generate"}, {"text": "..."}."""
     settings = get_settings()
@@ -78,7 +80,7 @@ async def ask_stream_events(
     yield {"phase": "generate"}
 
     t_prompt0 = time.monotonic()
-    system = get_system_prompt(mode)
+    system = get_system_prompt(mode, user_prompt=user_prompt, user_rules=user_rules)
     context = format_context(search_results.get("results", []))
     prompt = build_prompt(query, context)
     prompt_build_ms = round((time.monotonic() - t_prompt0) * 1000)
@@ -176,6 +178,8 @@ async def ask_with_history_stream_events(
     model: str | None = None,
     level: str | None = None,
     perf_out: dict | None = None,
+    user_prompt: str | None = None,
+    user_rules: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """RAG with history; yields phase events and text chunks (same shape as ask_stream_events)."""
     settings = get_settings()
@@ -223,7 +227,7 @@ async def ask_with_history_stream_events(
     yield {"phase": "generate"}
 
     t_prompt0 = time.monotonic()
-    system = get_system_prompt(mode)
+    system = get_system_prompt(mode, user_prompt=user_prompt, user_rules=user_rules)
     context = format_context(search_results.get("results", []))
 
     chat_messages = [{"role": "system", "content": system}]

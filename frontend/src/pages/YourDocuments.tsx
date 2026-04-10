@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import { useDocuments } from "../hooks/useDocuments";
 import { useChat } from "../hooks/useChat";
 import { UploadZone } from "../components/UploadZone";
@@ -13,19 +13,36 @@ export function YourDocuments() {
   const {
     documents, loading, indexStatus,
     chunkingConfig, metrics, metricsLoading,
+    agentConfig,
     refresh, upload, remove,
     startIndex, refreshIndex,
     refreshConfig, saveConfig, refreshMetrics,
+    refreshAgentConfig, saveAgentConfig,
   } = useDocuments();
   const { messages, streaming, phase, send, clear } = useChat("/chat/documents");
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Agent config drafts
+  const [promptDraft, setPromptDraft] = useState("");
+  const [rulesDraft, setRulesDraft] = useState("");
+  const [agentSaving, setAgentSaving] = useState<string | null>(null);
+  const [agentSuccess, setAgentSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     refresh();
     refreshIndex();
     refreshConfig();
     refreshMetrics();
-  }, [refresh, refreshIndex, refreshConfig, refreshMetrics]);
+    refreshAgentConfig();
+  }, [refresh, refreshIndex, refreshConfig, refreshMetrics, refreshAgentConfig]);
+
+  // Sync drafts when agentConfig loads
+  useEffect(() => {
+    if (agentConfig) {
+      setPromptDraft(agentConfig.system_prompt ?? "");
+      setRulesDraft(agentConfig.system_rules ?? "");
+    }
+  }, [agentConfig]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -37,6 +54,54 @@ export function YourDocuments() {
     await startIndex();
     refreshMetrics();
   }, [startIndex, refreshMetrics]);
+
+  const agentFlash = (msg: string) => {
+    setAgentSuccess(msg);
+    setTimeout(() => setAgentSuccess(null), 3000);
+  };
+
+  const handleSavePrompt = useCallback(async () => {
+    setAgentSaving("prompt");
+    try {
+      await saveAgentConfig({ system_prompt: promptDraft });
+      agentFlash("System prompt saved.");
+    } catch {
+      // no-op
+    } finally {
+      setAgentSaving(null);
+    }
+  }, [saveAgentConfig, promptDraft]);
+
+  const handleSaveRules = useCallback(async () => {
+    setAgentSaving("rules");
+    try {
+      await saveAgentConfig({ system_rules: rulesDraft });
+      agentFlash("Rules saved.");
+    } catch {
+      // no-op
+    } finally {
+      setAgentSaving(null);
+    }
+  }, [saveAgentConfig, rulesDraft]);
+
+  const textareaStyle: React.CSSProperties = {
+    width: "100%",
+    minHeight: 100,
+    padding: "10px 12px",
+    background: "var(--bg)",
+    color: "var(--text)",
+    border: "1px solid var(--border)",
+    borderRadius: "6px",
+    fontFamily: "monospace",
+    fontSize: "0.82rem",
+    resize: "vertical",
+    boxSizing: "border-box",
+  };
+
+  const defaultPrompt = agentConfig?.default_system_prompt || "";
+  const defaultRules = agentConfig?.default_system_rules || "";
+  const savedPrompt = agentConfig?.system_prompt ?? "";
+  const savedRules = agentConfig?.system_rules ?? "";
 
   return (
     <div className="documents-page">
@@ -102,6 +167,135 @@ export function YourDocuments() {
           disabled={streaming}
           placeholder="Ask about your documents..."
         />
+      </div>
+
+      <div className="documents-config-sidebar">
+        <h3 style={{ margin: "0 0 0.25rem" }}>Agent Settings</h3>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.78rem", margin: "0 0 1rem" }}>
+          Type in new values to replace the defaults.
+        </p>
+
+        {agentSuccess && (
+          <div
+            style={{
+              marginBottom: "0.75rem",
+              padding: "6px 10px",
+              background: "color-mix(in srgb, var(--success) 12%, var(--bg-card))",
+              border: "1px solid color-mix(in srgb, var(--success) 30%, var(--border))",
+              borderRadius: "6px",
+              color: "var(--success)",
+              fontSize: "0.8rem",
+            }}
+          >
+            {agentSuccess}
+          </div>
+        )}
+
+        <div style={{ marginBottom: "1.25rem" }}>
+          <label style={{
+            display: "block",
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            color: "var(--text-muted)",
+            marginBottom: "0.4rem",
+          }}>
+            System Prompt
+          </label>
+          <textarea
+            style={textareaStyle}
+            value={promptDraft}
+            onChange={(e) => setPromptDraft(e.target.value)}
+            placeholder={defaultPrompt || "Built-in default prompt is active…"}
+            spellCheck={false}
+          />
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleSavePrompt}
+              disabled={agentSaving === "prompt" || promptDraft === savedPrompt}
+            >
+              {agentSaving === "prompt" ? "Saving…" : "Save"}
+            </button>
+            {savedPrompt && (
+              <button
+                className="btn btn-sm"
+                style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                onClick={async () => {
+                  setAgentSaving("prompt");
+                  try {
+                    await saveAgentConfig({ system_prompt: "" });
+                    setPromptDraft("");
+                    agentFlash("Reset to default.");
+                  } catch { /* no-op */ } finally {
+                    setAgentSaving(null);
+                  }
+                }}
+              >
+                Reset
+              </button>
+            )}
+          </div>
+          {!savedPrompt && (
+            <div style={{ marginTop: "0.3rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              Using admin default prompt.
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label style={{
+            display: "block",
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            color: "var(--text-muted)",
+            marginBottom: "0.4rem",
+          }}>
+            Rules
+          </label>
+          <textarea
+            style={textareaStyle}
+            value={rulesDraft}
+            onChange={(e) => setRulesDraft(e.target.value)}
+            placeholder={defaultRules || "No default rules set. Add custom rules here…"}
+            spellCheck={false}
+          />
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleSaveRules}
+              disabled={agentSaving === "rules" || rulesDraft === savedRules}
+            >
+              {agentSaving === "rules" ? "Saving…" : "Save"}
+            </button>
+            {savedRules && (
+              <button
+                className="btn btn-sm"
+                style={{ background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+                onClick={async () => {
+                  setAgentSaving("rules");
+                  try {
+                    await saveAgentConfig({ system_rules: "" });
+                    setRulesDraft("");
+                    agentFlash("Rules cleared.");
+                  } catch { /* no-op */ } finally {
+                    setAgentSaving(null);
+                  }
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {!savedRules && (
+            <div style={{ marginTop: "0.3rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              Using admin default rules.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

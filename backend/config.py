@@ -27,7 +27,7 @@ class Settings:
 
         # ── Ollama ──
         self.OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "nemotron-3-nano:4b")
+        self.OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
         self.OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
         self.OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
 
@@ -118,8 +118,12 @@ class Settings:
 
         # ── Runtime admin overrides (mutable; persisted to DATA_DIR/admin_config.json) ──
         # These are set/updated via the admin Configuration tab at runtime.
+        # "Default" overrides apply to the Your Documents agent only.
         self.SYSTEM_PROMPT_OVERRIDE: str | None = None
         self.SYSTEM_RULES_OVERRIDE: str | None = None
+        # AMA-specific overrides apply to the Ask Me Anything agent only.
+        self.AMA_SYSTEM_PROMPT_OVERRIDE: str | None = None
+        self.AMA_SYSTEM_RULES_OVERRIDE: str | None = None
         self._load_admin_config()
 
     def _load_admin_config(self) -> None:
@@ -137,6 +141,13 @@ class Settings:
                 self.SYSTEM_RULES_OVERRIDE = data["system_rules"] or None
             if data.get("suggestion_model"):
                 self.SUGGESTION_MODEL = data["suggestion_model"]
+            om = data.get("ollama_model")
+            if om and str(om).strip():
+                self.OLLAMA_MODEL = str(om).strip()
+            if data.get("ama_system_prompt") is not None:
+                self.AMA_SYSTEM_PROMPT_OVERRIDE = data["ama_system_prompt"] or None
+            if data.get("ama_system_rules") is not None:
+                self.AMA_SYSTEM_RULES_OVERRIDE = data["ama_system_rules"] or None
         except Exception:
             pass
 
@@ -148,7 +159,10 @@ class Settings:
             "num_ctx": self.OLLAMA_NUM_CTX,
             "system_prompt": self.SYSTEM_PROMPT_OVERRIDE or "",
             "system_rules": self.SYSTEM_RULES_OVERRIDE or "",
+            "ama_system_prompt": self.AMA_SYSTEM_PROMPT_OVERRIDE or "",
+            "ama_system_rules": self.AMA_SYSTEM_RULES_OVERRIDE or "",
             "suggestion_model": self.SUGGESTION_MODEL,
+            "ollama_model": self.OLLAMA_MODEL,
         }
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 

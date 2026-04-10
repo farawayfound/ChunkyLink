@@ -334,7 +334,7 @@ body {
 /* Documents page */
 .documents-page {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 320px 1fr 280px;
   height: calc(100vh - 56px);
 }
 
@@ -347,6 +347,17 @@ body {
   gap: 16px;
 }
 .documents-sidebar h2 { font-size: 18px; }
+
+.documents-config-sidebar {
+  padding: 16px;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg);
+}
+.documents-config-sidebar h3 { font-size: 15px; }
 
 .documents-chat {
   display: flex;
@@ -1152,5 +1163,6 @@ body {
 @media (max-width: 768px) {
   .documents-page { grid-template-columns: 1fr; }
   .documents-sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  .documents-config-sidebar { border-left: none; border-top: 1px solid var(--border); }
   .nav-links { display: none; }
 }

@@ -7,8 +7,8 @@ export type ChatPhase = "idle" | "sending" | "searching" | "thinking" | "answeri
 /** Minimum milliseconds each phase must stay visible before transitioning. */
 const PHASE_MIN_MS: Record<ChatPhase, number> = {
   idle: 0,
-  sending: 3000,
-  searching: 2000,
+  sending: 3888,
+  searching: 1888,
   thinking: 0,
   answering: 0,
 };

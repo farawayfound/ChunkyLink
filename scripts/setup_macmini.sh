@@ -93,8 +93,8 @@ if ! pgrep -x ollama &>/dev/null; then
     sleep 3
 fi
 
-# Pull the default model (nemotron-3-nano:4b — fast, 4B params, works on 16GB)
-DEFAULT_MODEL="nemotron-mini:4b"
+# Pull the default model (gemma4:e4b — effective 4B edge variant, consistent for RAG/chat)
+DEFAULT_MODEL="gemma4:e4b"
 if ollama list 2>/dev/null | grep -q "$DEFAULT_MODEL"; then
     ok "Model $DEFAULT_MODEL already present"
 else
@@ -122,7 +122,7 @@ if [[ ! -f ".env" ]]; then
     # macOS sed needs backup extension
     sed -i '' "s|change-me-to-a-random-64-char-hex-string|$SECRET|g" .env
     # Set the model
-    sed -i '' "s|OLLAMA_MODEL=llama3.2|OLLAMA_MODEL=$DEFAULT_MODEL|g" .env
+    sed -i '' "s|^OLLAMA_MODEL=.*|OLLAMA_MODEL=$DEFAULT_MODEL|g" .env
     # Set data dir to a stable location outside the repo
     sed -i '' "s|DATA_DIR=./data|DATA_DIR=$DATA_DIR|g" .env
     warn "Edit $INSTALL_DIR/.env to add your GitHub OAuth credentials and OWNER_NAME!"

@@ -11,6 +11,7 @@ from backend.storage import (
     get_user_upload_dir, get_user_index_dir,
     get_user_chunking_config, save_user_chunking_config,
     get_user_token_metrics,
+    get_user_agent_config, save_user_agent_config,
 )
 from backend.logger import log_event
 
@@ -126,3 +127,24 @@ async def update_chunking_config(request: Request, user: dict = Depends(require_
 async def token_metrics(request: Request, user: dict = Depends(require_auth)):
     """Get token usage metrics for the authenticated user."""
     return get_user_token_metrics(user["user_id"])
+
+
+@router.get("/agent-config")
+async def get_agent_config(request: Request, user: dict = Depends(require_auth)):
+    """Get the user's agent configuration (system prompt and rules overrides)."""
+    config = get_user_agent_config(user["user_id"])
+    # Also return admin defaults so the frontend can show them as placeholders
+    from backend.config import get_settings
+    settings = get_settings()
+    config["default_system_prompt"] = settings.SYSTEM_PROMPT_OVERRIDE or ""
+    config["default_system_rules"] = settings.SYSTEM_RULES_OVERRIDE or ""
+    return config
+
+
+@router.put("/agent-config")
+async def update_agent_config(request: Request, user: dict = Depends(require_auth)):
+    """Update the user's agent configuration (system prompt and rules)."""
+    body = await request.json()
+    saved = save_user_agent_config(user["user_id"], body)
+    log_event("agent_config_update", user_id=user["user_id"])
+    return saved

@@ -140,6 +140,35 @@ def get_user_token_metrics(user_id: str) -> dict:
     }
 
 
+def get_user_agent_config(user_id: str) -> dict:
+    """Load per-user agent config (system prompt and rules overrides)."""
+    import json
+    config_path = get_user_index_dir(user_id) / "agent_config.json"
+    defaults = {"system_prompt": "", "system_rules": ""}
+    if config_path.exists():
+        try:
+            saved = json.loads(config_path.read_text(encoding="utf-8"))
+            for k in defaults:
+                if k in saved:
+                    defaults[k] = saved[k]
+        except Exception:
+            pass
+    return defaults
+
+
+def save_user_agent_config(user_id: str, config: dict) -> dict:
+    """Persist per-user agent config (system prompt and rules). Returns the saved config."""
+    import json
+    allowed_keys = {"system_prompt", "system_rules"}
+    current = get_user_agent_config(user_id)
+    for k, v in config.items():
+        if k in allowed_keys:
+            current[k] = (v or "").strip()
+    config_path = get_user_index_dir(user_id) / "agent_config.json"
+    config_path.write_text(json.dumps(current, indent=2), encoding="utf-8")
+    return current
+
+
 def delete_user_data(user_id: str) -> None:
     """Remove all data for a user (uploads + indexes)."""
     for base in [get_settings().UPLOADS_DIR / "users" / user_id,
