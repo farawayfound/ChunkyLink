@@ -250,7 +250,18 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok", "service": "chunkylink"}
+        """Include SPA bundle hint so you can verify the running process sees a fresh ``frontend/dist``."""
+        out: dict = {"status": "ok", "service": "chunkylink"}
+        dist_index = Path(__file__).resolve().parent.parent / "frontend" / "dist" / "index.html"
+        if dist_index.is_file():
+            m = dist_index.stat().st_mtime
+            out["frontend"] = {
+                "index_html_mtime_unix": int(m),
+                "index_html_built_at": datetime.fromtimestamp(m, tz=timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                ),
+            }
+        return out
 
     # Serve the pre-built React frontend if the dist/ folder exists.
     # This lets uvicorn run as a single process without a separate nginx.

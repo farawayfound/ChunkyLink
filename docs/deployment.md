@@ -156,6 +156,39 @@ launchctl print "gui/$(id -u)/com.chunkylink.backend" | rg "state =|pid ="
 tail -n 100 ~/Library/Logs/chunkylink.log
 ```
 
+**Important:** **`git pull` does not update the UI by itself.** The browser loads files from **`frontend/dist/`**, which is gitignored. You must run **`npm run build`** (or **`bash scripts/setup_macmini.sh`**, which runs **`npm ci`** + **`npm run build`**) after pulling, then restart the LaunchAgent.
+
+#### Stale UI after deploy (Mac mini + Cloudflare / CDN)
+
+Symptoms: you know **`~/chunkylink`** is on the latest commit and **`npm run build`** succeeded, but the site still looks like an older version—even in Incognito and after purging caches.
+
+1. **Confirm the running backend is reading the dist you built**
+
+   On the Mac mini:
+
+   ```bash
+   stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" ~/chunkylink/frontend/dist/index.html
+   curl -sS http://127.0.0.1:8765/api/health
+   ```
+
+   The JSON field **`frontend.index_html_built_at`** must match the **`index.html`** modification time on disk. If it does **not**, the LaunchAgent is almost certainly using a **different** working directory or an old process: check **`launchctl print gui/$(id -u)/com.chunkylink.backend`** for **`working directory`** (should be **`~/chunkylink`**). Reload the plist after fixing: **`bash scripts/setup_macmini.sh`** or **`launchctl unload` / `load`** the agent.
+
+2. **Cloudflare (orange-cloud) in front of the Mac**
+
+   **`index.html`** is served with **no-store** headers, but many CDNs still cache HTML unless you add an explicit rule. Create a **Cache Rule** (or Page Rule) to **Bypass** cache for the site’s HTML entry (e.g. URI Path equals **`/`** or **`/index.html`**), or enable **Development Mode** temporarily. Hashed files under **`/assets/`** are safe to cache long-term; **do not** let **`/`** or SPA routes sit behind a long **TTL** for HTML.
+
+3. **Force a clean frontend build**
+
+   ```bash
+   cd ~/chunkylink/frontend
+   rm -rf node_modules/.vite dist
+   npm ci && npm run build
+   cd ..
+   launchctl kickstart -k "gui/$(id -u)/com.chunkylink.backend"
+   ```
+
+4. **Wrong repo path** — Only one tree should be canonical (**`$HOME/chunkylink`** from **`setup_macmini.sh`**). If you sometimes **`git pull`** in another clone, **`dist/`** there is irrelevant.
+
 **`deploy_chunkylink.sh`** will:
 
 1. **`git fetch`** then either **`git pull --ff-only`** or, with **`DEPLOY_RESET_HARD=1`**, **`git reset --hard`** to match the remote (see [§ 2](#2-deploy-on-the-linux-server-nanobot)).
@@ -243,7 +276,8 @@ If you prefer not to migrate an existing tree, you can clone into a new director
 | **`fatal: not a git repository`** from **`~`** | Run Git with **`sudo git -C /srv/chunkylink/repo …`** (or **`cd`** there first). Your home directory is not the repo. |
 | **`git pull --ff-only` failed** / “local changes would be overwritten” | Common on **nanobot**. If **GitHub** should win, use [§ 2](#2-deploy-on-the-linux-server-nanobot): **`sudo DEPLOY_RESET_HARD=1 bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh`**. Alternatively: **`sudo git -C /srv/chunkylink/repo fetch origin && sudo git -C /srv/chunkylink/repo reset --hard origin/main`**, then rerun deploy without reset if you prefer. |
 | Frontend build skipped | Install **nvm** + Node under the sudo-ing user, or set **`DEPLOY_SKIP_NPM=1`** and supply **`frontend/dist`** another way. |
-| **Mac mini:** UI unstyled or clearly old after pull | Rebuild: **`cd ~/chunkylink/frontend && npm run build`**, then **`launchctl kickstart -k "gui/$(id -u)/com.chunkylink.backend"`**. See [§ 2a](#2a-deploy-on-davidmacmini-launchagent). |
+| **Mac mini:** UI unstyled or clearly old after pull | **`git pull` alone does not refresh `dist/`** — run **`npm run build`** or **`bash scripts/setup_macmini.sh`**, then restart the agent. See [§ 2a](#2a-deploy-on-davidmacmini-launchagent). |
+| **Mac mini:** UI stuck on old version despite rebuild + Incognito | Compare **`stat …/frontend/dist/index.html`** with **`curl http://127.0.0.1:8765/api/health`** → **`frontend.index_html_built_at`**. Mismatch → wrong **WorkingDirectory** or stale process. If they match, fix **Cloudflare / CDN HTML caching** (subsection *Stale UI after deploy* under [§ 2a](#2a-deploy-on-davidmacmini-launchagent)). |
 | Service not active after restart | **`journalctl -u chunkylink -e`** |
 | **Mac mini:** chat still uses **nemotron** after **`setup_macmini.sh`** | **`admin_config.json`** (under **`DATA_DIR`**) stores **`ollama_model`** and overrides **`.env`**. The setup script now rewrites legacy nemotron/llama defaults in both **`.env`** and **`~/chunkylink/data/admin_config.json`**. Restart: **`launchctl kickstart -k "gui/$(id -u)/com.chunkylink.backend"`**. To pin the stack default on any model: **`CHUNKYLINK_FORCE_DEFAULT_OLLAMA_MODEL=1 bash scripts/setup_macmini.sh`**. |
 
