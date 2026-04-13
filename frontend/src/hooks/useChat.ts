@@ -4,13 +4,11 @@ import type { ChatMessage } from "../types";
 
 export type ChatPhase = "idle" | "sending" | "searching" | "thinking" | "answering";
 
-/** Minimum milliseconds each phase must stay visible before transitioning.
- *  Kept tiny so a fast warm backend is not artificially gated — just enough
- *  to prevent the stepper from flashing between stages on instant responses. */
+/** Minimum milliseconds each phase must stay visible before transitioning. */
 const PHASE_MIN_MS: Record<ChatPhase, number> = {
   idle: 0,
-  sending: 150,
-  searching: 150,
+  sending: 3000,
+  searching: 2000,
   thinking: 0,
   answering: 0,
 };
@@ -76,7 +74,7 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
               });
             }
           }
-          if (event.thinking) {
+          if (typeof event.thinking === "string" && event.thinking.length > 0) {
             setMessages((prev) => {
               const updated = [...prev];
               const last = updated[updated.length - 1];

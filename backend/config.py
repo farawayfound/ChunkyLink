@@ -108,11 +108,10 @@ class Settings:
         self.MAX_CONTEXT_CHUNK_CHARS = int(os.getenv("MAX_CONTEXT_CHUNK_CHARS", "1200"))
         self.CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "2048"))
         self.CHAT_TEMPERATURE = float(os.getenv("CHAT_TEMPERATURE", "0.3"))
-        # Reasoning trace in chat responses. Off by default: for RAG-style Q&A the
-        # model's reasoning rarely improves answer quality but adds seconds of
-        # prefill+decode before visible text reaches the user. Flip to "true" if
-        # you're using a model that specifically benefits from visible thinking.
-        self.CHAT_ENABLE_THINKING = os.getenv("CHAT_ENABLE_THINKING", "false").lower() == "true"
+        # Reasoning trace in chat responses. On by default for self-hosted Ollama so
+        # the UI can stream and collapse the trace; set CHAT_ENABLE_THINKING=false for
+        # lower time-to-first-token when you do not need the trace.
+        self.CHAT_ENABLE_THINKING = os.getenv("CHAT_ENABLE_THINKING", "true").lower() == "true"
         # Quick | Standard | Deep | Exhaustive — Quick reduces per-message CPU vs Standard
         self.CHAT_SEARCH_LEVEL = os.getenv("CHAT_SEARCH_LEVEL", "Quick")
         # 0 = TTL disabled (LRU only); else seconds until identical search cache entries expire

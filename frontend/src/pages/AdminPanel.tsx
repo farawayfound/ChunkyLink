@@ -226,7 +226,23 @@ function OverviewTab() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "1rem" }}>
         <HostCard label="macmini (backend)" snap={system?.local ?? null} />
         {system && system.workers.length === 0 && (
-          <HostCard label="nanobot (worker)" snap={null} offline />
+          <div className="stat-card" style={{ padding: "1rem", textAlign: "left" }}>
+            <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>nanobot (worker)</div>
+            <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+              offline — no recent stats
+            </div>
+            {!system.queue_error && (
+              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: 0, lineHeight: 1.45 }}>
+                Redis is reachable, but nothing is writing <code style={{ fontSize: "0.7rem" }}>worker:stats:*</code>{" "}
+                heartbeats (expected every ~10s from the Library worker). Start the worker on nanobot (
+                <code style={{ fontSize: "0.7rem" }}>scripts/deploy_nanobot_worker.sh</code>
+                ) and set <code style={{ fontSize: "0.7rem" }}>REDIS_URL</code> in{" "}
+                <code style={{ fontSize: "0.7rem" }}>.env.nanobot</code> to the same Redis URL as the backend. Docker
+                often cannot resolve <code style={{ fontSize: "0.7rem" }}>.local</code> hostnames; use the Mac&apos;s LAN
+                IP if the worker cannot connect.
+              </p>
+            )}
+          </div>
         )}
         {system?.workers.map((w) => (
           <HostCard key={w.worker_id ?? w.host} label={`${w.worker_id ?? "worker"} (nanobot)`} snap={w} />

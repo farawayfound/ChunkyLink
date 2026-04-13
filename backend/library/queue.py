@@ -84,6 +84,10 @@ class QueueBackend(ABC):
         """Yield status updates as they arrive (for SSE)."""
         ...
 
+    async def worker_stats_redis_keys(self) -> list[str]:
+        """Redis keys for nanobot heartbeats (`worker:stats:*`). Default: none."""
+        return []
+
 
 # ---------------------------------------------------------------------------
 # Redis Streams implementation
@@ -144,11 +148,15 @@ class RedisQueue(QueueBackend):
     async def set_cancel_requested(self, job_id: str) -> None:
         await self._r.setex(f"{_CANCEL_PREFIX}{job_id}", _CANCEL_TTL_SEC, "1")
 
-    async def scan_keys(self, match: str) -> list[str]:
-        """Return keys matching a glob pattern (non-blocking SCAN)."""
+    async def worker_stats_redis_keys(self) -> list[str]:
+        """Collect `worker:stats:*` keys via SCAN (safe on large keyspaces)."""
         keys: list[str] = []
-        async for k in self._r.scan_iter(match=match):
-            keys.append(k)
+        cur: int | str = 0
+        while True:
+            cur, batch = await self._r.scan(cursor=cur, match="worker:stats:*", count=200)
+            keys.extend(batch)
+            if cur in (0, "0"):
+                break
         return keys
 
     async def get_key(self, key: str) -> str | None:

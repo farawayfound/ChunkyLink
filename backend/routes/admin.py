@@ -178,7 +178,7 @@ async def admin_system(request: Request, user: dict = Depends(require_admin)):
     queue_error: str | None = None
     try:
         q = get_queue()
-        keys = await q.scan_keys("worker:stats:*")
+        keys = await q.worker_stats_redis_keys()
         for k in keys:
             raw = await q.get_key(k)
             if not raw:

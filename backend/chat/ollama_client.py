@@ -2,6 +2,7 @@
 """Async Ollama REST API client with streaming support."""
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import AsyncIterator
@@ -9,6 +10,15 @@ from typing import AsyncIterator
 import httpx
 
 from backend.config import get_settings
+
+
+def _ollama_think_request_value() -> bool | str:
+    """JSON value for Ollama's ``think`` field: bool, or low/medium/high (GPT-OSS)."""
+    level = os.getenv("CHAT_THINK_LEVEL", "").strip().lower()
+    if level in ("low", "medium", "high"):
+        return level
+    return bool(get_settings().CHAT_ENABLE_THINKING)
+
 
 # ── Shared HTTP client (initialized in app lifespan) ───────────────────────
 _http_client: httpx.AsyncClient | None = None
@@ -383,9 +393,8 @@ async def generate_stream(
     *kind* is ``"thinking"`` for reasoning-trace tokens or ``"text"`` for
     visible answer tokens.
 
-    ``think`` is controlled by ``settings.CHAT_ENABLE_THINKING`` (default
-    off — reasoning adds seconds of hidden prefill+decode before visible
-    text for RAG-style Q&A).  Three complementary strategies still ensure
+    ``think`` is set from ``CHAT_THINK_LEVEL`` (low/medium/high for GPT-OSS) or
+    ``settings.CHAT_ENABLE_THINKING`` as a boolean.  Three complementary strategies still ensure
     every model works regardless of Ollama version when thinking is on:
 
     1. **Native separation** — the ``thinking`` field from Ollama is yielded
@@ -410,7 +419,7 @@ async def generate_stream(
         "model": model,
         "prompt": prompt,
         "stream": True,
-        "think": bool(settings.CHAT_ENABLE_THINKING),
+        "think": _ollama_think_request_value(),
         "keep_alive": -1,
         "options": {
             "temperature": temperature,
@@ -513,7 +522,7 @@ async def chat_stream(
         "model": model,
         "messages": messages,
         "stream": True,
-        "think": bool(settings.CHAT_ENABLE_THINKING),
+        "think": _ollama_think_request_value(),
         "keep_alive": -1,
         "options": {
             "temperature": temperature,

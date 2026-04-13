@@ -15,7 +15,7 @@ import sysstats
 from queue_consumer import QueueConsumer
 
 _STATS_KEY_PREFIX = "worker:stats:"
-_STATS_TTL_SEC = 30
+_STATS_TTL_SEC = 60
 _STATS_INTERVAL_SEC = 10
 
 logging.basicConfig(
