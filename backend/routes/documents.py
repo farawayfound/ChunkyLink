@@ -203,14 +203,21 @@ async def get_document_insights(
     user: dict = Depends(require_auth),
 ):
     """Return cached insights for a single document (builds on demand if missing)."""
+    from urllib.parse import unquote
     from backend.services.insights_service import (
         load_cached_insights, build_insights as build_one,
     )
+    doc_id = unquote(doc_id)
+    if not doc_id or not doc_id.strip():
+        raise HTTPException(400, "doc_id is required")
     if not refresh:
         cached = load_cached_insights(user["user_id"], doc_id)
         if cached is not None:
             return cached
-    return await build_one(user["user_id"], doc_id, force=refresh)
+    result = await build_one(user["user_id"], doc_id, force=refresh)
+    if result.get("empty"):
+        raise HTTPException(404, f"No indexed chunks found for document: {doc_id}")
+    return result
 
 
 @router.get("/chunks")
@@ -251,15 +258,22 @@ async def list_chunks(
         chunk_doc = meta.get("doc_id") or ""
         chunk_cat = meta.get("nlp_category") or "general"
         chunk_tags = [t for t in (chunk.get("tags") or []) if isinstance(t, str)]
-        ents_raw = meta.get("nlp_entities") or []
+        ents_raw = meta.get("nlp_entities") or {}
         chunk_entities = []
-        for e in ents_raw:
-            if isinstance(e, dict):
-                txt = e.get("text") or e.get("value")
-                if txt:
-                    chunk_entities.append(txt)
-            elif isinstance(e, str):
-                chunk_entities.append(e)
+        if isinstance(ents_raw, dict):
+            for values in ents_raw.values():
+                for val in (values if isinstance(values, list) else [values]):
+                    val_str = str(val).strip()
+                    if val_str:
+                        chunk_entities.append(val_str)
+        elif isinstance(ents_raw, list):
+            for e in ents_raw:
+                if isinstance(e, dict):
+                    txt = e.get("text") or e.get("value")
+                    if txt:
+                        chunk_entities.append(txt)
+                elif isinstance(e, str):
+                    chunk_entities.append(e)
 
         if doc_id and chunk_doc != doc_id:
             continue

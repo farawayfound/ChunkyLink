@@ -10,6 +10,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || body.error || res.statusText);
   }
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    throw new Error(
+      `Expected JSON response but received ${ct || "unknown content-type"} — the API may be unreachable`,
+    );
+  }
   return res.json();
 }
 

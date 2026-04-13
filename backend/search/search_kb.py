@@ -134,7 +134,7 @@ def _get_tag_stoplist() -> frozenset:
 
 
 def _get_default_domains() -> list[str]:
-    return list(get_settings().DEFAULT_SEARCH_DOMAINS)
+    return []
 
 
 def _get_domains_from_query(query: str) -> list[str]:

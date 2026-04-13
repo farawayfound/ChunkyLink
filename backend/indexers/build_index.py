@@ -15,9 +15,11 @@ from backend.config import get_settings
 from backend.indexers.incremental_indexer import IncrementalIndexer
 from backend.indexers.utils.topic_metadata import add_topic_metadata
 from backend.indexers.utils.text_processing import (
-    classify_profile, summarize_for_router, normalize_text, deduplicate_cross_file
+    summarize_for_router, normalize_text, deduplicate_cross_file
 )
-from backend.indexers.utils.nlp_classifier import enrich_record_with_nlp
+from backend.indexers.utils.nlp_classifier import (
+    enrich_record_with_nlp, generate_document_categories_sync,
+)
 from backend.indexers.utils.cross_reference import (
     enrich_chunk_with_cross_refs, build_topic_clusters,
     get_term_aliases, auto_generate_aliases, clear_doc_cache
@@ -44,11 +46,16 @@ def _promote_nlp_category(enriched: Dict) -> Dict:
     return enriched
 
 
-def _enrich(record: Dict, text: str, path: Path, auto_tag: bool = None) -> Dict:
+def _enrich(record: Dict, text: str, path: Path, auto_tag: bool = None,
+            categories: list = None) -> Dict:
     text = sanitize_pii(text)
     if "text_raw" in record:
         record["text_raw"] = sanitize_pii(record["text_raw"])
-    return _promote_nlp_category(enrich_record_with_nlp(add_topic_metadata(record, path), text, auto_tag=auto_tag))
+    enriched = enrich_record_with_nlp(
+        add_topic_metadata(record, path), text,
+        auto_tag=auto_tag, categories=categories,
+    )
+    return _promote_nlp_category(enriched)
 
 
 def split_glossary_entries(text: str) -> List[dict]:
@@ -185,18 +192,16 @@ def main(src_dir: str = None, out_dir: str = None, config_overrides: dict = None
         if old_doc_ids:
             indexer.remove_old_records(old_doc_ids)
 
-    # Process files sequentially (avoid multiprocessing complexity with backend.config imports)
     for path in files_to_process:
-        prof = 'auto' if settings.ENABLE_AUTO_CLASSIFICATION else classify_profile(path.name, settings.DOC_PROFILES)
-        logging.info(f"Processing [{prof}] {path.name}")
+        logging.info(f"Processing {path.name}")
         try:
-            result = _process_file_inline(path, prof, cfg)
+            result = _process_file_inline(path, cfg, out_path)
             all_router_docs.extend(result['router_docs'])
             all_router_chapters.extend(result['router_chapters'])
             all_detail.extend(result['detail'])
-            manifest['files'].append({'file': path.name, 'profile': prof})
+            manifest['files'].append({'file': path.name})
             indexer.mark_processed(path, [path.name])
-            logging.info(f"Completed [{prof}] {path.name} — {len(result['detail'])} chunks")
+            logging.info(f"Completed {path.name} — {len(result['detail'])} chunks")
         except Exception as ex:
             logging.exception(f"Failed for {path.name}: {ex}")
 
@@ -272,99 +277,150 @@ def main(src_dir: str = None, out_dir: str = None, config_overrides: dict = None
     logging.info(f"Indexing complete. {len(files_to_process)} files, {len(all_detail)} chunks.")
 
 
-def _process_file_inline(path: Path, prof: str, cfg: dict) -> dict:
-    """Process a single file in the current process."""
+def _collect_text_sample(raw_detail: list, full_text: str = "", max_chars: int = 4000) -> str:
+    """Build a representative text sample for Ollama category generation."""
+    parts = []
+    total = 0
+    if full_text:
+        parts.append(full_text[:max_chars])
+        total += len(parts[0])
+    for chunk in raw_detail:
+        if total >= max_chars:
+            break
+        t = chunk.get("text_raw") or chunk.get("text") or ""
+        snippet = t[:800]
+        parts.append(snippet)
+        total += len(snippet)
+    return "\n\n".join(parts)[:max_chars]
+
+
+def _process_file_inline(path: Path, cfg: dict, out_path: Path) -> dict:
+    """Process a single file: extract chunks, generate AI categories, then enrich."""
     import fitz
 
-    router_docs, router_chapters, detail = [], [], []
+    router_docs, router_chapters, raw_detail = [], [], []
     auto_tag = cfg.get("ENABLE_AUTO_TAGGING")
+    auto_classify = cfg.get("ENABLE_AUTO_CLASSIFICATION", True)
+    full_text = ""
 
     try:
         if path.suffix.lower() == '.pptx':
             res = build_for_pptx(path, cfg)
             full_text = ' '.join([r['summary'] for r in res['router']])[:5000]
-            router_chapters.extend([_enrich(r, r.get('summary', ''), path, auto_tag) for r in res['router']])
-            router_docs.append(_enrich({
+            raw_detail.extend(res['detail'])
+            router_chapters.extend(res['router'])
+            router_docs.append({
                 'route_id': f'{path.name}::doc', 'title': path.stem,
                 'scope_pages': [1, len(res['router'])],
                 'summary': summarize_for_router(full_text, cfg.get('MAX_ROUTER_SUMMARY_CHARS', 3000)),
-                'tags': [prof]
-            }, full_text, path, auto_tag))
-            detail.extend([_enrich(r, r.get('text_raw', r.get('text', '')), path, auto_tag) for r in res['detail']])
+                'tags': []
+            })
 
         elif path.suffix.lower() == '.pdf':
-            if prof == 'glossary' or 'glossary' in path.name.lower():
+            if 'glossary' in path.name.lower():
                 doc = fitz.open(str(path))
                 try:
                     text = ' '.join([normalize_text(pg.get_text('text')) for pg in doc])
                     page_count = doc.page_count
                 finally:
                     doc.close()
+                full_text = text
                 gloss_chunks = split_glossary_entries(text)
-                router_docs.append(add_topic_metadata({
+                router_docs.append({
                     'route_id': f'{path.name}::doc', 'title': path.stem,
                     'scope_pages': [1, page_count],
                     'summary': summarize_for_router(text, cfg.get('MAX_ROUTER_SUMMARY_CHARS', 3000)),
                     'tags': ['glossary']
-                }, path))
+                })
                 for c in gloss_chunks:
                     c['metadata']['doc_id'] = path.name
-                    detail.append(_enrich(c, c.get('text', ''), path, auto_tag))
+                    raw_detail.append(c)
             else:
                 res = build_for_pdf(path, cfg)
                 full_text = ' '.join([r['summary'] for r in res['router']])[:4000]
-                router_chapters.extend([_enrich(r, r.get('summary', ''), path, auto_tag) for r in res['router']])
-                router_docs.append(_enrich({
+                raw_detail.extend(res['detail'])
+                router_chapters.extend(res['router'])
+                router_docs.append({
                     'route_id': f'{path.name}::doc', 'title': path.stem,
                     'scope_pages': [1, res['pages']],
                     'summary': summarize_for_router(full_text, cfg.get('MAX_ROUTER_SUMMARY_CHARS', 3000)),
-                    'tags': [prof]
-                }, full_text, path, auto_tag))
-                detail.extend([_enrich(r, r.get('text_raw', r.get('text', '')), path, auto_tag) for r in res['detail']])
+                    'tags': []
+                })
 
         elif path.suffix.lower() == '.txt':
             res = build_for_txt(path, cfg)
             full_text = res['router'][0]['summary'] if res['router'] else ''
-            router_chapters.extend([_enrich(r, r.get('summary', ''), path, auto_tag) for r in res['router']])
-            detail.extend([_enrich(r, r.get('text_raw', ''), path, auto_tag) for r in res['detail']])
-            router_docs.append(_enrich({
+            raw_detail.extend(res['detail'])
+            router_chapters.extend(res['router'])
+            router_docs.append({
                 'route_id': f'{path.name}::doc', 'title': path.stem,
-                'scope_pages': [1, 1], 'summary': full_text, 'tags': [prof]
-            }, full_text, path, auto_tag))
+                'scope_pages': [1, 1], 'summary': full_text, 'tags': []
+            })
 
         elif path.suffix.lower() == '.docx':
             res = build_for_docx(path, cfg)
             full_text = ' '.join([r['summary'] for r in res['router']])[:4000]
-            router_chapters.extend([_enrich(r, r.get('summary', ''), path, auto_tag) for r in res['router']])
-            detail.extend([_enrich(r, r.get('text_raw', ''), path, auto_tag) for r in res['detail']])
-            router_docs.append(_enrich({
+            raw_detail.extend(res['detail'])
+            router_chapters.extend(res['router'])
+            router_docs.append({
                 'route_id': f'{path.name}::doc', 'title': path.stem,
                 'scope_pages': [1, len(res['router'])],
                 'summary': summarize_for_router(full_text, cfg.get('MAX_ROUTER_SUMMARY_CHARS', 3000)),
-                'tags': [prof]
-            }, full_text, path, auto_tag))
+                'tags': []
+            })
 
         elif path.suffix.lower() == '.csv':
             res = build_for_csv(path, cfg)
-            detail.extend([_enrich(r, r.get('text_raw', ''), path, auto_tag) for r in res['detail']])
+            raw_detail.extend(res['detail'])
             sample_text = ' '.join([r.get('text_raw', '')[:200] for r in res['detail'][:5]])
+            full_text = sample_text
             csv_type = res['detail'][0]['metadata'].get('csv_type', 'data') if res['detail'] else 'data'
-            router_docs.append(_enrich({
+            router_docs.append({
                 'route_id': f'{path.name}::doc', 'title': f'CSV Data - {path.stem}',
                 'scope_pages': [1, len(res['detail'])],
                 'summary': f"CSV dataset with {len(res['detail'])} records (type: {csv_type})",
                 'tags': ['csv-data', csv_type]
-            }, sample_text, path, auto_tag))
+            })
 
     except Exception as ex:
         logging.exception(f'Error processing {path.name}: {ex}')
+
+    # --- Phase 1: Generate dynamic categories via Ollama ---
+    categories = None
+    if auto_classify and raw_detail:
+        text_sample = _collect_text_sample(raw_detail, full_text)
+        logging.info(f"Generating AI categories for {path.name} ({len(text_sample)} char sample)")
+        try:
+            categories = generate_document_categories_sync(
+                text_sample, path.name, index_dir=out_path,
+            )
+            cat_names = [c["name"] for c in categories]
+            logging.info(f"Categories for {path.name}: {cat_names}")
+        except Exception as exc:
+            logging.warning(f"Category generation failed for {path.name}: {exc}")
+
+    # --- Phase 2: Enrich all records with NLP + dynamic categories ---
+    detail = []
+    for r in raw_detail:
+        text = r.get('text_raw') or r.get('text') or ''
+        detail.append(_enrich(r, text, path, auto_tag, categories=categories))
+
+    enriched_router_chapters = []
+    for r in router_chapters:
+        text = r.get('summary') or ''
+        enriched_router_chapters.append(_enrich(r, text, path, auto_tag, categories=categories))
+
+    enriched_router_docs = []
+    for r in router_docs:
+        text = r.get('summary') or full_text or ''
+        enriched_router_docs.append(_enrich(r, text, path, auto_tag, categories=categories))
 
     min_words = cfg.get('CHUNK_QUALITY_MIN_WORDS', 10)
     detail = [c for c in detail if is_quality_chunk(c.get('text_raw', c.get('text', '')), min_words)]
 
     return {
-        'router_docs': router_docs,
-        'router_chapters': router_chapters,
+        'router_docs': enriched_router_docs,
+        'router_chapters': enriched_router_chapters,
         'detail': detail,
     }
 

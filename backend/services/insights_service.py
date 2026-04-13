@@ -103,16 +103,24 @@ def _aggregate(user_id: str, doc_id: str) -> dict[str, Any]:
             if isinstance(t, str):
                 tags[t] += 1
 
-        ents = meta.get("nlp_entities") or []
-        for ent in ents:
-            # entities may be {"text": ..., "label": ...} or plain strings
-            if isinstance(ent, dict):
-                label = ent.get("text") or ent.get("value")
-                kind = ent.get("label") or ent.get("type") or ""
-            else:
-                label, kind = str(ent), ""
-            if label and len(label) > 1:
-                entities[f"{label}|{kind}"] += 1
+        ents_raw = meta.get("nlp_entities") or {}
+        if isinstance(ents_raw, dict):
+            for ent_type, values in ents_raw.items():
+                for val in (values if isinstance(values, list) else [values]):
+                    val_str = str(val).strip()
+                    if len(val_str) > 1:
+                        entities[f"{val_str}|{ent_type}"] += 1
+        elif isinstance(ents_raw, list):
+            for ent in ents_raw:
+                if isinstance(ent, dict):
+                    label = ent.get("text") or ent.get("value") or ""
+                    kind = ent.get("label") or ent.get("type") or ""
+                elif isinstance(ent, str):
+                    label, kind = ent, ""
+                else:
+                    continue
+                if label and len(label) > 1:
+                    entities[f"{label}|{kind}"] += 1
 
         for kp in meta.get("key_phrases") or []:
             if isinstance(kp, str) and len(kp) > 1:

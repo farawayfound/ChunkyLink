@@ -35,6 +35,10 @@ class Settings:
         self.GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
         self.GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
         self.GITHUB_ALLOWED_ADMINS = [u.strip() for u in os.getenv("GITHUB_ALLOWED_ADMINS", "").split(",") if u.strip()]
+        # Optional: set to frontend dev-server origin (e.g. http://localhost:5173) so
+        # that the post-OAuth redirect lands on the Vite dev server instead of the
+        # backend.  Leave empty (default) for production same-origin deployments.
+        self.FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 
         # ── SMTP (for invite code emails) ──
         self.SMTP_HOST = os.getenv("SMTP_HOST", "")
@@ -87,20 +91,10 @@ class Settings:
         # ── Domain config (empty by default — users populate as needed) ──
         self.TERM_ALIASES: dict[str, list[str]] = {}
         self.CONTENT_TAGS: dict[str, list[str]] = {}
-        self.DOC_PROFILES: dict[str, list[str]] = {
-            "glossary": ["glossary", "acronym"],
-            "manual": ["manual", "playbook", "handbook"],
-            "sop": ["sop", "procedure", "how-to"],
-            "queries": ["query", "queries", "sql"],
-            "reference": ["reference", "guide"],
-        }
         self.TAG_STOPLIST: set[str] = {
             "address", "report", "client", "issue", "select",
-            "your", "home", "experience", "usage", "task", "role",
+            "your", "home", "usage", "task", "role",
         }
-
-        # ── Search ──
-        self.DEFAULT_SEARCH_DOMAINS = ["experience", "skills", "education"]
 
         # ── Suggestions ──
         self.SUGGESTION_MODEL = os.getenv("SUGGESTION_MODEL", "lfm2:24b-a2b")

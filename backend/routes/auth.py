@@ -33,13 +33,15 @@ async def github_login(request: Request):
 @router.get("/github/callback", name="github_callback")
 async def github_callback(request: Request, code: str = "", state: str = ""):
     """Handle GitHub OAuth callback."""
+    settings = get_settings()
+    frontend = settings.FRONTEND_URL  # "" in production (same origin), dev URL otherwise
     if not code or not validate_state(state):
-        return RedirectResponse("/?error=auth_failed")
+        return RedirectResponse(f"{frontend}/?error=auth_failed")
 
     redirect_uri = str(request.url_for("github_callback"))
     user_info = await exchange_code(code, redirect_uri)
     if not user_info:
-        return RedirectResponse("/?error=auth_failed")
+        return RedirectResponse(f"{frontend}/?error=auth_failed")
 
     db = await get_db()
     try:
@@ -66,7 +68,7 @@ async def github_callback(request: Request, code: str = "", state: str = ""):
         log_event("login", method="github", user_id=user_info["github_id"],
                   role=user_info["role"], username=user_info["github_username"])
 
-        response = RedirectResponse("/")
+        response = RedirectResponse(f"{frontend}/")
         response.set_cookie(
             SESSION_COOKIE, token,
             httponly=True, samesite="lax", max_age=30 * 86400,
