@@ -354,7 +354,7 @@ def _process_file_inline(path: Path, cfg: dict, out_path: Path) -> dict:
                     'tags': []
                 })
 
-        elif path.suffix.lower() == '.txt':
+        elif path.suffix.lower() in {'.txt', '.md'}:
             res = build_for_txt(path, cfg)
             full_text = res['router'][0]['summary'] if res['router'] else ''
             raw_detail.extend(res['detail'])

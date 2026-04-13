@@ -191,7 +191,7 @@ def get_preserve_data_flag(user_id: str) -> dict:
             return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             pass
-    return {"preserve": False}
+    return {"preserve": True}
 
 
 def set_preserve_data_flag(user_id: str, preserve: bool) -> dict:

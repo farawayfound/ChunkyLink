@@ -53,7 +53,7 @@ class IncrementalIndexer:
         src_path = Path(source_dir)
         all_files = []
         if src_path.exists():
-            for ext in ("*.pdf", "*.pptx", "*.txt", "*.docx", "*.csv"):
+            for ext in ("*.pdf", "*.pptx", "*.txt", "*.md", "*.docx", "*.csv"):
                 all_files.extend(src_path.glob(f"**/{ext}"))
         for file_path in all_files:
             file_key = str(file_path.resolve())

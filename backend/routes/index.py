@@ -183,7 +183,7 @@ async def build_index(
 
     # Check there are files to index
     src = Path(src_dir)
-    files = list(src.glob("**/*.pdf")) + list(src.glob("**/*.txt")) + \
+    files = list(src.glob("**/*.pdf")) + list(src.glob("**/*.txt")) + list(src.glob("**/*.md")) + \
             list(src.glob("**/*.docx")) + list(src.glob("**/*.pptx")) + \
             list(src.glob("**/*.csv"))
     if not files:

@@ -38,8 +38,7 @@ export function Workspace() {
   const [agentSuccess, setAgentSuccess] = useState<string | null>(null);
 
   // Preserve data
-  const [preserveChecked, setPreserveChecked] = useState(false);
-  const [preserveConfirmed, setPreserveConfirmed] = useState(false);
+  const [preserveChecked, setPreserveChecked] = useState(true);
 
   // Build-index confirm modal
   const [showBuildModal, setShowBuildModal] = useState(false);
@@ -61,7 +60,6 @@ export function Workspace() {
   useEffect(() => {
     if (preserveData) {
       setPreserveChecked(preserveData.preserve);
-      setPreserveConfirmed(preserveData.preserve);
     }
   }, [preserveData]);
 
@@ -279,6 +277,28 @@ export function Workspace() {
           ))}
         </div>
 
+        <div className="settings-preserve" style={{ marginTop: "0.75rem" }}>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", fontSize: "0.82rem" }}>
+            <input
+              type="checkbox"
+              checked={preserveChecked}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setPreserveChecked(checked);
+                void savePreserve(checked);
+                agentFlash(checked ? "Data will be preserved." : "Data will be cleared on logout.");
+              }}
+              style={{ marginTop: "2px" }}
+            />
+            <span>Preserve data for next session</span>
+          </label>
+          <div style={{ marginTop: "0.35rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+            {preserveChecked
+              ? "Your documents and index will be kept until your next login."
+              : "Data is cleared on logout or after 24 hours of inactivity."}
+          </div>
+        </div>
+
         <IndexMetrics metrics={metrics} loading={metricsLoading} />
 
         <div className="index-controls">
@@ -445,49 +465,6 @@ export function Workspace() {
                 </div>
               </div>
 
-              <div className="settings-preserve">
-                <label style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", fontSize: "0.82rem" }}>
-                  <input
-                    type="checkbox"
-                    checked={preserveChecked}
-                    onChange={(e) => {
-                      setPreserveChecked(e.target.checked);
-                      if (!e.target.checked && preserveConfirmed) {
-                        savePreserve(false);
-                        setPreserveConfirmed(false);
-                        agentFlash("Data will be cleared on logout.");
-                      }
-                    }}
-                    style={{ marginTop: "2px" }}
-                  />
-                  <span>Preserve data for next session</span>
-                </label>
-                {preserveChecked && !preserveConfirmed && (
-                  <div className="preserve-confirm">
-                    <p>Your documents and index will be kept until your next login.</p>
-                    <button
-                      className="btn btn-sm btn-primary"
-                      onClick={async () => {
-                        await savePreserve(true);
-                        setPreserveConfirmed(true);
-                        agentFlash("Data will be preserved.");
-                      }}
-                    >
-                      Confirm
-                    </button>
-                  </div>
-                )}
-                {preserveConfirmed && (
-                  <div style={{ marginTop: "0.4rem", fontSize: "0.75rem", color: "var(--success)" }}>
-                    Data will be preserved.
-                  </div>
-                )}
-                {!preserveChecked && !preserveConfirmed && (
-                  <div style={{ marginTop: "0.3rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                    Data is cleared on logout or after 24 hours of inactivity.
-                  </div>
-                )}
-              </div>
             </div>
           )}
         </div>
