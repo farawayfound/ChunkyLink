@@ -1597,6 +1597,17 @@ button.chip:hover { border-color: var(--primary); }
   font-size: 14px;
 }
 
+.library-concurrent-notice {
+  margin: 0 0 12px 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: var(--radius);
+}
+
 .library-empty {
   text-align: center;
   padding: 40px 20px;

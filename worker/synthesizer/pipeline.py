@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Coroutine
+from typing import Any, Awaitable, Callable, Coroutine, Optional
 
 import config
 from crawler.search import run_search
@@ -14,11 +14,17 @@ from synthesizer.prompts import SYNTHESIS_SYSTEM, build_synthesis_prompt
 log = logging.getLogger(__name__)
 
 StatusCallback = Callable[..., Coroutine[Any, Any, None]]
+CancelCheck = Optional[Callable[[], Awaitable[bool]]]
+
+
+class JobCancelledError(Exception):
+    """Raised when the API sets a cooperative-cancel flag (Redis) mid-run."""
 
 
 async def run_pipeline(
     job,
     status_cb: StatusCallback | None = None,
+    cancel_check: CancelCheck = None,
 ) -> dict:
     """Execute the full research pipeline and return the artifact.
 
@@ -29,7 +35,19 @@ async def run_pipeline(
         if status_cb:
             await status_cb(status, msg, progress, sources)
 
+    async def _abort_if_cancelled() -> None:
+        if cancel_check is None:
+            return
+        try:
+            if await cancel_check():
+                raise JobCancelledError()
+        except JobCancelledError:
+            raise
+        except Exception as exc:
+            log.debug("cancel_check failed (ignored): %s", exc)
+
     # -- Phase 1: Search ---------------------------------------------------
+    await _abort_if_cancelled()
     await _status("crawling", "Searching the web...", 0.1)
 
     search_results = await run_search(
@@ -37,6 +55,8 @@ async def run_pipeline(
         max_results=job.max_sources,
         llm_fn=quick_generate,
     )
+
+    await _abort_if_cancelled()
 
     if not search_results:
         raise RuntimeError("No search results found for the given prompt.")
@@ -50,6 +70,8 @@ async def run_pipeline(
         max_concurrent=config.MAX_CONCURRENT_SCRAPES,
         timeout=config.SCRAPE_TIMEOUT,
     )
+
+    await _abort_if_cancelled()
 
     good_pages = [p for p in pages if p.success and len(p.content) > 100]
     if not good_pages:
@@ -71,14 +93,18 @@ async def run_pipeline(
             "content": page.content,
         })
 
+    await _abort_if_cancelled()
     user_prompt = build_synthesis_prompt(job.prompt, sources_for_llm)
     markdown = await generate(user_prompt, system=SYNTHESIS_SYSTEM, temperature=0.3)
+
+    await _abort_if_cancelled()
 
     if not markdown or len(markdown.strip()) < 100:
         raise RuntimeError("LLM synthesis returned empty or too-short output.")
 
     await _status("synthesizing", "Generating summary...", 0.9, len(good_pages))
 
+    await _abort_if_cancelled()
     summary = await generate(
         f"Summarize in 2-3 sentences:\n\n{markdown[:3000]}",
         temperature=0.2,

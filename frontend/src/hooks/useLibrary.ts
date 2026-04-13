@@ -4,7 +4,6 @@ import {
   getLibraryTask,
   submitResearch,
   approveLibraryTask,
-  rejectLibraryTask,
   cancelLibraryTask,
   deleteLibraryTask,
   subscribeTaskStatus,
@@ -67,7 +66,7 @@ export function useLibrary() {
     }
   }, []);
 
-  const approve = useCallback(async (id: string) => {
+  const importOne = useCallback(async (id: string) => {
     try {
       const res = await approveLibraryTask(id);
       await refresh();
@@ -78,27 +77,67 @@ export function useLibrary() {
     }
   }, [refresh]);
 
-  const reject = useCallback(async (id: string) => {
-    try {
-      await rejectLibraryTask(id);
-      await refresh();
-    } catch (e: any) {
-      setError(e.message);
+  const importSelected = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return { results: [] as any[] };
+    setError(null);
+    const settled = await Promise.allSettled(ids.map((id) => approveLibraryTask(id)));
+    await refresh();
+    const failed = settled.filter((r) => r.status === "rejected");
+    if (failed.length > 0) {
+      const first = failed[0] as PromiseRejectedResult;
+      setError(
+        failed.length === ids.length
+          ? first.reason?.message || "Could not import tasks"
+          : `${failed.length} of ${ids.length} tasks could not be imported`,
+      );
     }
+    return {
+      results: settled.map((r, i) => ({
+        id: ids[i],
+        ok: r.status === "fulfilled",
+        value: r.status === "fulfilled" ? r.value : null,
+        error: r.status === "rejected" ? (r as PromiseRejectedResult).reason?.message : null,
+      })),
+    };
   }, [refresh]);
 
-  const remove = useCallback(async (id: string) => {
-    try {
-      await deleteLibraryTask(id);
-      await refresh();
-    } catch (e: any) {
-      setError(e.message);
+  const deleteSelected = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setError(null);
+    for (const id of ids) {
+      const cleanup = cleanupRefs.current.get(id);
+      if (cleanup) {
+        cleanup();
+        cleanupRefs.current.delete(id);
+      }
+    }
+    setTasks((prev) => prev.filter((t) => !ids.includes(t.id)));
+    const settled = await Promise.allSettled(ids.map((id) => deleteLibraryTask(id)));
+    const failed = settled.filter((r) => r.status === "rejected");
+    await refresh();
+    if (failed.length > 0) {
+      const first = failed[0] as PromiseRejectedResult;
+      setError(
+        failed.length === ids.length
+          ? first.reason?.message || "Could not delete tasks"
+          : `${failed.length} of ${ids.length} tasks could not be deleted`,
+      );
     }
   }, [refresh]);
 
   const cancelSelected = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return;
     setError(null);
+    for (const id of ids) {
+      const cleanup = cleanupRefs.current.get(id);
+      if (cleanup) {
+        cleanup();
+        cleanupRefs.current.delete(id);
+      }
+    }
+    setTasks((prev) =>
+      prev.map((t) => (ids.includes(t.id) ? { ...t, status: "cancelled" } : t)),
+    );
     const results = await Promise.allSettled(ids.map((id) => cancelLibraryTask(id)));
     const failed = results.filter((r) => r.status === "rejected");
     await refresh();
@@ -158,9 +197,9 @@ export function useLibrary() {
     refresh,
     submit,
     fetchTask,
-    approve,
-    reject,
-    remove,
+    importOne,
+    importSelected,
+    deleteSelected,
     cancelSelected,
   };
 }

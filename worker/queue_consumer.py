@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 _STREAM_JOBS = "library:jobs"
 _STREAM_STATUS_PREFIX = "library:status:"
+_CANCEL_PREFIX = "library:cancel:"
 _GROUP = "workers"
 
 
@@ -92,3 +93,9 @@ class QueueConsumer:
         }
         await self._redis.xadd(key, payload, maxlen=50)
         await self._redis.expire(key, 86400)
+
+    async def is_cancel_requested(self, job_id: str) -> bool:
+        """True if the API set a cooperative-cancel flag for this job (see backend library queue)."""
+        assert self._redis
+        val = await self._redis.get(f"{_CANCEL_PREFIX}{job_id}")
+        return bool(val)

@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLibrary, type LibraryTask } from "../hooks/useLibrary";
 import { getLibraryTask, getIndexEmailStatus } from "../api/client";
 
 type View = "list" | "detail";
 
+const MAX_LIBRARY_SOURCES = 20;
+const MAX_CONCURRENT_ACTIVE_TASKS = 2;
+
 const STATUS_LABELS: Record<string, string> = {
   queued: "Queued",
   crawling: "Crawling",
   synthesizing: "Synthesizing",
-  review: "Ready for Review",
-  approved: "Approved",
+  review: "Completed",
+  approved: "Imported",
   rejected: "Rejected",
   failed: "Failed",
   cancelled: "Cancelled",
@@ -30,14 +33,18 @@ function isActive(status: string) {
   return ["queued", "crawling", "synthesizing"].includes(status);
 }
 
-function canUserCancelTask(status: string) {
-  return !["approved", "rejected", "cancelled"].includes(status);
+function canCancel(status: string) {
+  return ["queued", "crawling", "synthesizing"].includes(status);
+}
+
+function canImport(status: string) {
+  return status === "review";
 }
 
 export function Library() {
   const {
     tasks, loading, submitting, error,
-    refresh, submit, approve, reject, remove, cancelSelected,
+    refresh, submit, importOne, importSelected, deleteSelected, cancelSelected,
   } = useLibrary();
 
   const [view, setView] = useState<View>("list");
@@ -57,23 +64,41 @@ export function Library() {
   const [confirmSubmitting, setConfirmSubmitting] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
-  const [selectedForCancel, setSelectedForCancel] = useState<Set<string>>(() => new Set());
-  const [cancellingBulk, setCancellingBulk] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkAction, setBulkAction] = useState<null | "cancel" | "import" | "delete">(null);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   useEffect(() => {
-    const allowed = new Set(
-      tasks.filter((t) => canUserCancelTask(t.status)).map((t) => t.id),
-    );
-    setSelectedForCancel((prev) => new Set([...prev].filter((id) => allowed.has(id))));
+    setMaxSources((n) => Math.min(MAX_LIBRARY_SOURCES, Math.max(1, n)));
+  }, []);
+
+  const activePipelineCount = useMemo(
+    () => tasks.filter((t) => isActive(t.status)).length,
+    [tasks],
+  );
+  const atConcurrentLimit = activePipelineCount >= MAX_CONCURRENT_ACTIVE_TASKS;
+
+  useEffect(() => {
+    const existing = new Set(tasks.map((t) => t.id));
+    setSelectedIds((prev) => new Set([...prev].filter((id) => existing.has(id))));
   }, [tasks]);
+
+  const selectedTasks = useMemo(
+    () => tasks.filter((t) => selectedIds.has(t.id)),
+    [tasks, selectedIds],
+  );
+  const canBulkCancel =
+    selectedTasks.length > 0 && selectedTasks.every((t) => canCancel(t.status));
+  const canBulkImport =
+    selectedTasks.length > 0 && selectedTasks.every((t) => canImport(t.status));
+  const canBulkDelete = selectedTasks.length > 0;
 
   const displayError = localError || error;
 
   // Open the confirm modal (pre-fetch email status)
   const openConfirmModal = useCallback(async () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || atConcurrentLimit) return;
     setConfirmError(null);
     setShowConfirm(true);
     try {
@@ -84,7 +109,7 @@ export function Library() {
       setHasStoredEmail(false);
       setConfirmEmail("");
     }
-  }, [prompt]);
+  }, [prompt, atConcurrentLimit]);
 
   const handleConfirmSubmit = useCallback(async () => {
     if (!prompt.trim() || confirmSubmitting) return;
@@ -127,65 +152,73 @@ export function Library() {
     }
   }, []);
 
-  const handleApprove = useCallback(async () => {
+  const handleImportOne = useCallback(async () => {
     if (!selectedId) return;
     try {
-      const res = await approve(selectedId);
+      const res = await importOne(selectedId);
       setApproveResult(res);
       const t = await getLibraryTask(selectedId);
       setDetail(t);
     } catch {
       // shown via hook error
     }
-  }, [selectedId, approve]);
+  }, [selectedId, importOne]);
 
-  const handleReject = useCallback(async () => {
-    if (!selectedId) return;
-    await reject(selectedId);
-    setView("list");
-  }, [selectedId, reject]);
-
-  const handleDelete = useCallback(async (id: string) => {
-    await remove(id);
-    if (selectedId === id) setView("list");
-  }, [remove, selectedId]);
-
-  const toggleSelectCancel = useCallback((id: string) => {
-    if (!canUserCancelTask(tasks.find((x) => x.id === id)?.status ?? "")) return;
-    setSelectedForCancel((prev) => {
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }, [tasks]);
+  }, []);
+
+  const handleImportSelected = useCallback(async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0 || bulkAction) return;
+    setBulkAction("import");
+    setLocalError(null);
+    try {
+      await importSelected(ids);
+      setSelectedIds(new Set());
+    } finally {
+      setBulkAction(null);
+    }
+  }, [selectedIds, bulkAction, importSelected]);
 
   const handleCancelSelected = useCallback(async () => {
-    const ids = [...selectedForCancel];
-    if (ids.length === 0 || cancellingBulk) return;
-    setCancellingBulk(true);
+    const ids = [...selectedIds];
+    if (ids.length === 0 || bulkAction) return;
+    setBulkAction("cancel");
     setLocalError(null);
     try {
       await cancelSelected(ids);
-      setSelectedForCancel(new Set());
+      setSelectedIds(new Set());
     } finally {
-      setCancellingBulk(false);
+      setBulkAction(null);
     }
-  }, [selectedForCancel, cancellingBulk, cancelSelected]);
+  }, [selectedIds, bulkAction, cancelSelected]);
 
-  const cancellableCount = tasks.filter((t) => canUserCancelTask(t.status)).length;
-  const allCancellableSelected =
-    cancellableCount > 0 &&
-    tasks.filter((t) => canUserCancelTask(t.status)).every((t) => selectedForCancel.has(t.id));
-
-  const toggleSelectAllCancellable = useCallback(() => {
-    const cancellable = tasks.filter((t) => canUserCancelTask(t.status));
-    if (allCancellableSelected) {
-      setSelectedForCancel(new Set());
-    } else {
-      setSelectedForCancel(new Set(cancellable.map((t) => t.id)));
+  const handleDeleteSelected = useCallback(async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0 || bulkAction) return;
+    if (!window.confirm(`Delete ${ids.length} task${ids.length === 1 ? "" : "s"} and their researched documents? This cannot be undone.`)) return;
+    setBulkAction("delete");
+    setLocalError(null);
+    try {
+      await deleteSelected(ids);
+      setSelectedIds(new Set());
+    } finally {
+      setBulkAction(null);
     }
-  }, [tasks, allCancellableSelected]);
+  }, [selectedIds, bulkAction, deleteSelected]);
+
+  const allSelected = tasks.length > 0 && tasks.every((t) => selectedIds.has(t.id));
+
+  const toggleSelectAll = useCallback(() => {
+    if (allSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(tasks.map((t) => t.id)));
+  }, [tasks, allSelected]);
 
   // ── List view ──
 
@@ -200,6 +233,12 @@ export function Library() {
         </div>
 
         <div className="library-input-section">
+          {atConcurrentLimit && (
+            <p className="library-concurrent-notice" role="status">
+              You already have {MAX_CONCURRENT_ACTIVE_TASKS} tasks queued or running. Cancel one or wait until
+              a task reaches review before submitting another.
+            </p>
+          )}
           <div className="library-input-row">
             <textarea
               value={prompt}
@@ -212,7 +251,8 @@ export function Library() {
             <button
               className="btn btn-primary"
               onClick={openConfirmModal}
-              disabled={submitting || !prompt.trim()}
+              disabled={submitting || !prompt.trim() || atConcurrentLimit}
+              title={atConcurrentLimit ? "Wait for a task to finish or cancel one" : undefined}
             >
               Research
             </button>
@@ -228,13 +268,17 @@ export function Library() {
             {showOptions && (
               <div className="library-options-body">
                 <label>
-                  Max sources:
+                  Max sources (1–{MAX_LIBRARY_SOURCES}):
                   <input
                     type="number"
                     min={1}
-                    max={30}
+                    max={MAX_LIBRARY_SOURCES}
                     value={maxSources}
-                    onChange={(e) => setMaxSources(Number(e.target.value))}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isNaN(v)) return;
+                      setMaxSources(Math.min(MAX_LIBRARY_SOURCES, Math.max(1, v)));
+                    }}
                   />
                 </label>
               </div>
@@ -247,26 +291,59 @@ export function Library() {
         <div className="library-task-list">
           {tasks.length > 0 && (
             <div className="library-bulk-row">
-              {cancellableCount > 0 && (
-                <label className="library-select-all">
-                  <input
-                    type="checkbox"
-                    checked={allCancellableSelected}
-                    onChange={toggleSelectAllCancellable}
-                    aria-label="Select all tasks that can be cancelled"
-                  />
-                  <span>Select all</span>
-                </label>
-              )}
+              <label className="library-select-all">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label="Select all tasks"
+                />
+                <span>Select all</span>
+              </label>
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                disabled={!canBulkImport || bulkAction !== null}
+                onClick={handleImportSelected}
+                title={
+                  selectedIds.size === 0
+                    ? "Select one or more Completed tasks"
+                    : canBulkImport
+                      ? "Import selected tasks into Workspace"
+                      : "Only Completed tasks can be imported"
+                }
+              >
+                {bulkAction === "import"
+                  ? "Importing…"
+                  : `Import to Workspace${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
+              </button>
               <button
                 type="button"
                 className="btn btn-sm btn-danger"
-                disabled={selectedForCancel.size === 0 || cancellingBulk}
+                disabled={!canBulkCancel || bulkAction !== null}
                 onClick={handleCancelSelected}
+                title={
+                  selectedIds.size === 0
+                    ? "Select one or more Queued/Running tasks"
+                    : canBulkCancel
+                      ? "Cancel selected tasks"
+                      : "Only Queued or Running tasks can be cancelled"
+                }
               >
-                {cancellingBulk
+                {bulkAction === "cancel"
                   ? "Cancelling…"
-                  : `Cancel selected${selectedForCancel.size > 0 ? ` (${selectedForCancel.size})` : ""}`}
+                  : `Cancel Selected${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                disabled={!canBulkDelete || bulkAction !== null}
+                onClick={handleDeleteSelected}
+                title="Delete selected tasks and their research documents"
+              >
+                {bulkAction === "delete"
+                  ? "Deleting…"
+                  : `Delete${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
               </button>
             </div>
           )}
@@ -284,14 +361,9 @@ export function Library() {
               >
                 <input
                   type="checkbox"
-                  disabled={!canUserCancelTask(t.status)}
-                  checked={canUserCancelTask(t.status) && selectedForCancel.has(t.id)}
-                  onChange={() => toggleSelectCancel(t.id)}
-                  aria-label={
-                    canUserCancelTask(t.status)
-                      ? "Select for cancel"
-                      : "Cannot cancel this task"
-                  }
+                  checked={selectedIds.has(t.id)}
+                  onChange={() => toggleSelect(t.id)}
+                  aria-label="Select task"
                 />
               </label>
               <div className="library-task-info">
@@ -309,15 +381,6 @@ export function Library() {
                   {isActive(t.status) && <span className="library-status-dot" />}
                   {STATUS_LABELS[t.status] || t.status}
                 </span>
-                {["review", "approved", "rejected", "failed", "cancelled"].includes(t.status) && (
-                  <button
-                    className="btn btn-sm btn-danger"
-                    onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
-                    title="Delete"
-                  >
-                    &times;
-                  </button>
-                )}
               </div>
             </div>
           ))}
@@ -405,7 +468,7 @@ export function Library() {
                 <button
                   className="btn btn-sm btn-primary"
                   onClick={handleConfirmSubmit}
-                  disabled={confirmSubmitting}
+                  disabled={confirmSubmitting || atConcurrentLimit}
                 >
                   {confirmSubmitting ? "Submitting..." : "Start Research"}
                 </button>
@@ -473,7 +536,7 @@ export function Library() {
           {approveResult && (
             <div className={`library-approve-result ${approveResult.status === "approved" ? "success" : ""}`}>
               {approveResult.status === "approved" && (
-                <span>Approved and saved as <strong>{approveResult.filename}</strong>. Build your index from Workspace to include it in RAG.</span>
+                <span>Imported as <strong>{approveResult.filename}</strong>. Build your index from Workspace to include it in RAG.</span>
               )}
               {approveResult.status === "duplicate" && (
                 <span>Duplicate detected (similarity {approveResult.similarity}) — already in your knowledge base.</span>
@@ -486,11 +549,8 @@ export function Library() {
 
           {detail.status === "review" && !approveResult && (
             <div className="library-review-actions">
-              <button className="btn btn-primary" onClick={handleApprove}>
-                Approve &amp; Add to Documents
-              </button>
-              <button className="btn btn-danger" onClick={handleReject}>
-                Reject
+              <button className="btn btn-primary" onClick={handleImportOne}>
+                Import to Workspace
               </button>
             </div>
           )}

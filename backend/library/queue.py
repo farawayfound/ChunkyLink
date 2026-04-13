@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 _STREAM_JOBS = "library:jobs"
 _STREAM_STATUS_PREFIX = "library:status:"
+_CANCEL_PREFIX = "library:cancel:"
+_CANCEL_TTL_SEC = 86400
 _GROUP = "workers"
 
 log = logging.getLogger(__name__)
@@ -63,6 +65,14 @@ class QueueBackend(ABC):
     async def publish_status(self, update: StatusUpdate) -> None:
         """Broadcast a progress update for a job."""
         ...
+
+    async def purge_job(self, job_id: str) -> None:
+        """Remove this job from the work stream and consumer PEL (best-effort)."""
+        return
+
+    async def set_cancel_requested(self, job_id: str) -> None:
+        """Signal the worker to stop processing this job (cooperative cancel)."""
+        return
 
     @abstractmethod
     async def get_latest_status(self, job_id: str) -> StatusUpdate | None:
@@ -130,6 +140,50 @@ class RedisQueue(QueueBackend):
 
     async def ack(self, stream_id: str) -> None:
         await self._r.xack(_STREAM_JOBS, _GROUP, stream_id)
+
+    async def set_cancel_requested(self, job_id: str) -> None:
+        await self._r.setex(f"{_CANCEL_PREFIX}{job_id}", _CANCEL_TTL_SEC, "1")
+
+    async def purge_job(self, job_id: str) -> None:
+        """Drop stream entries and pending deliveries for this job_id."""
+        r = self._r
+        cursor = "+"
+        while True:
+            batch = await r.xrevrange(_STREAM_JOBS, max=cursor, min="-", count=200)
+            if not batch:
+                break
+            for stream_id, fields in batch:
+                if fields.get("job_id") == job_id:
+                    await r.xdel(_STREAM_JOBS, stream_id)
+            oldest = batch[-1][0]
+            cursor = f"({oldest}"
+
+        try:
+            pending = await r.xpending_range(_STREAM_JOBS, _GROUP, "-", "+", 500)
+        except Exception as exc:
+            log.debug("xpending_range for purge skipped: %s", exc)
+            return
+        for entry in pending:
+            mid = entry.get("message_id")
+            if not mid:
+                continue
+            try:
+                rows = await r.xrange(_STREAM_JOBS, min=mid, max=mid)
+            except Exception:
+                continue
+            if not rows:
+                continue
+            _, fields = rows[0]
+            if fields.get("job_id") != job_id:
+                continue
+            try:
+                await r.xack(_STREAM_JOBS, _GROUP, mid)
+            except Exception:
+                pass
+            try:
+                await r.xdel(_STREAM_JOBS, mid)
+            except Exception:
+                pass
 
     # -- Status updates ------------------------------------------------------
 

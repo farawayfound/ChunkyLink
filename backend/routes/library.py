@@ -13,11 +13,14 @@ from fastapi.responses import StreamingResponse
 from backend.auth.middleware import require_auth
 from backend.config import get_settings
 from backend.library import service
+from backend.library.models import StatusUpdate
 from backend.library.queue import get_queue
 from backend.logger import log_event
 
 router = APIRouter()
 log = logging.getLogger(__name__)
+
+_SSE_TERMINAL = frozenset({"review", "failed", "cancelled", "approved", "rejected"})
 
 
 # ---------------------------------------------------------------------------
@@ -93,32 +96,72 @@ async def get_task(task_id: str, user: dict = Depends(require_auth)):
 
 @router.get("/tasks/{task_id}/stream")
 async def stream_task_status(task_id: str, user: dict = Depends(require_auth)):
-    task = await service.get_task(user["user_id"], task_id)
+    user_id = user["user_id"]
+    task = await service.get_task(user_id, task_id)
     if not task:
         raise HTTPException(404, "task not found")
 
-    queue = get_queue()
+    use_redis = True
+    try:
+        queue = get_queue()
+    except RuntimeError:
+        queue = None
+        use_redis = False
 
     async def event_generator():
-        try:
-            async for update in queue.subscribe_status(task_id):
-                if update is None:
-                    yield ": keepalive\n\n"
-                    continue
-                data = json.dumps(update.to_dict())
-                yield f"data: {data}\n\n"
+        nonlocal use_redis, queue
+        if use_redis and queue is not None:
+            try:
+                async for update in queue.subscribe_status(task_id):
+                    if update is None:
+                        yield ": keepalive\n\n"
+                        continue
+                    data = json.dumps(update.to_dict())
+                    yield f"data: {data}\n\n"
 
-                await service.sync_task_status(
-                    update.job_id,
-                    update.status,
-                    sources_found=update.sources_found,
-                )
+                    await service.sync_task_status(
+                        update.job_id,
+                        update.status,
+                        sources_found=update.sources_found,
+                    )
 
-                if update.status in ("review", "failed", "cancelled"):
+                    if update.status in ("review", "failed", "cancelled"):
+                        yield "data: [DONE]\n\n"
+                        return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("library SSE redis path failed for %s: %s", task_id, exc)
+                use_redis = False
+
+        if not use_redis:
+            last_status: str | None = None
+            while True:
+                row = await service.get_task(user_id, task_id)
+                if not row:
                     yield "data: [DONE]\n\n"
                     return
-        except asyncio.CancelledError:
-            return
+                st = row["status"]
+                if st != last_status:
+                    last_status = st
+                    upd = StatusUpdate(
+                        job_id=task_id,
+                        status=st,
+                        message="",
+                        progress=0.0,
+                        sources_found=int(row.get("sources_found") or 0),
+                    )
+                    yield f"data: {json.dumps(upd.to_dict())}\n\n"
+                    await service.sync_task_status(
+                        task_id,
+                        st,
+                        sources_found=row.get("sources_found"),
+                    )
+                if st in _SSE_TERMINAL:
+                    yield "data: [DONE]\n\n"
+                    return
+                yield ": keepalive\n\n"
+                await asyncio.sleep(1.0)
 
     return StreamingResponse(
         event_generator(),

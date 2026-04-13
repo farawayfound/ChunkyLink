@@ -2,9 +2,10 @@
 """Library service — business logic for distributed research tasks."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from backend.config import get_settings
@@ -14,6 +15,11 @@ from backend.library.queue import get_queue
 from backend.storage import get_user_upload_dir, get_user_index_dir
 
 log = logging.getLogger(__name__)
+
+MAX_LIBRARY_SOURCES = 20
+MAX_CONCURRENT_ACTIVE_TASKS = 2
+_ACTIVE_STATUSES = (TaskStatus.QUEUED, TaskStatus.CRAWLING, TaskStatus.SYNTHESIZING)
+CANCELLED_RETENTION_MINUTES = 5
 
 
 def _artifacts_dir(user_id: str) -> Path:
@@ -30,6 +36,21 @@ def _now_iso() -> str:
 # Submit
 # ---------------------------------------------------------------------------
 
+async def count_active_research_tasks(user_id: str) -> int:
+    """Tasks that are queued or currently running on the worker (not yet in review)."""
+    db = await get_db()
+    try:
+        ph = ",".join("?" * len(_ACTIVE_STATUSES))
+        cursor = await db.execute(
+            f"SELECT COUNT(*) AS c FROM library_tasks WHERE user_id = ? AND status IN ({ph})",
+            (user_id, *_ACTIVE_STATUSES),
+        )
+        row = await cursor.fetchone()
+        return int(dict(row)["c"])
+    finally:
+        await db.close()
+
+
 async def submit_research(
     user_id: str,
     prompt: str,
@@ -43,6 +64,16 @@ async def submit_research(
         raise ValueError("prompt is required")
     if len(prompt) > 2000:
         raise ValueError("prompt must be <=2000 characters")
+
+    if max_sources < 1 or max_sources > MAX_LIBRARY_SOURCES:
+        raise ValueError(f"max_sources must be between 1 and {MAX_LIBRARY_SOURCES}")
+
+    active = await count_active_research_tasks(user_id)
+    if active >= MAX_CONCURRENT_ACTIVE_TASKS:
+        raise ValueError(
+            f"at most {MAX_CONCURRENT_ACTIVE_TASKS} research tasks can be queued or running at a time; "
+            "cancel one or wait for a task to finish"
+        )
 
     queue = get_queue()
 
@@ -78,7 +109,24 @@ async def submit_research(
 # List / get
 # ---------------------------------------------------------------------------
 
+async def prune_stale_cancelled_tasks() -> None:
+    """Remove cancelled rows older than CANCELLED_RETENTION_MINUTES (library list hygiene)."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=CANCELLED_RETENTION_MINUTES)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    db = await get_db()
+    try:
+        await db.execute(
+            "DELETE FROM library_tasks WHERE status = ? AND updated_at < ?",
+            (TaskStatus.CANCELLED, cutoff),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
 async def get_tasks(user_id: str, limit: int = 50, offset: int = 0) -> list[dict]:
+    await prune_stale_cancelled_tasks()
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -115,6 +163,7 @@ async def get_task_by_id(task_id: str) -> dict | None:
 
 
 async def list_all_tasks(limit: int = 50, offset: int = 0) -> list[dict]:
+    await prune_stale_cancelled_tasks()
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -335,12 +384,31 @@ async def _mark_task_cancelled(task_id: str) -> None:
         await db.close()
 
 
-async def _publish_cancel_status(task_id: str) -> None:
+async def _purge_and_publish_cancelled(task_id: str) -> None:
     try:
-        queue = get_queue()
-        await queue.publish_status(
-            StatusUpdate(job_id=task_id, status=TaskStatus.CANCELLED, message="Cancelled"),
-        )
+        q = get_queue()
+    except RuntimeError:
+        return
+    await q.set_cancel_requested(task_id)
+    await q.purge_job(task_id)
+    await q.publish_status(
+        StatusUpdate(job_id=task_id, status=TaskStatus.CANCELLED, message="Cancelled"),
+    )
+
+
+def _schedule_queue_after_cancel(task_id: str) -> None:
+    """Purge Redis stream / PEL and publish cancel without blocking the HTTP response."""
+
+    async def runner() -> None:
+        try:
+            await asyncio.wait_for(_purge_and_publish_cancelled(task_id), timeout=5.0)
+        except asyncio.TimeoutError:
+            log.warning("queue cancel timed out for job %s", task_id)
+        except Exception:
+            log.warning("queue cancel side-effects failed for job %s", task_id, exc_info=True)
+
+    try:
+        asyncio.get_running_loop().create_task(runner())
     except RuntimeError:
         pass
 
@@ -351,7 +419,7 @@ async def cancel_task(user_id: str, task_id: str) -> dict:
         raise ValueError("task not found")
     _ensure_cancellable(task)
     await _mark_task_cancelled(task_id)
-    await _publish_cancel_status(task_id)
+    _schedule_queue_after_cancel(task_id)
     log.info("cancelled task %s", task_id)
     return {"status": "cancelled"}
 
@@ -362,7 +430,7 @@ async def cancel_task_by_id(task_id: str) -> dict:
         raise ValueError("task not found")
     _ensure_cancellable(task)
     await _mark_task_cancelled(task_id)
-    await _publish_cancel_status(task_id)
+    _schedule_queue_after_cancel(task_id)
     log.info("cancelled task %s (by id)", task_id)
     return {"status": "cancelled"}
 
@@ -371,6 +439,9 @@ async def delete_task(user_id: str, task_id: str) -> dict:
     task = await get_task(user_id, task_id)
     if not task:
         raise ValueError("task not found")
+
+    if task["status"] in _ACTIVE_STATUSES:
+        _schedule_queue_after_cancel(task_id)
 
     if task.get("artifact_path"):
         p = Path(task["artifact_path"])
@@ -407,7 +478,7 @@ async def sync_task_status(job_id: str, status: str, **extra) -> None:
     if "error" in extra:
         sets.append("error = ?")
         params.append(extra["error"])
-    if status in (TaskStatus.REVIEW, TaskStatus.FAILED):
+    if status in (TaskStatus.REVIEW, TaskStatus.FAILED, TaskStatus.CANCELLED):
         sets.append("completed_at = ?")
         params.append(now)
 

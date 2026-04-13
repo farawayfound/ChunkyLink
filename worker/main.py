@@ -28,20 +28,38 @@ def _handle_signal(*_):
 
 async def _process_job(consumer: QueueConsumer, stream_id: str, job) -> None:
     """Run the full research pipeline for a single job."""
-    from synthesizer.pipeline import run_pipeline
+    from synthesizer.pipeline import JobCancelledError, run_pipeline
 
     job_id = job.job_id
     log.info("processing job %s — %r", job_id, job.prompt[:80])
 
+    async def cancel_check() -> bool:
+        return await consumer.is_cancel_requested(job_id)
+
     try:
-        await consumer.publish_status(job_id, "crawling", "Starting web search...")
+        if await cancel_check():
+            log.info("job %s skipped — cancel flag set before pipeline", job_id)
+            await consumer.publish_status(
+                job_id, "cancelled", "Cancelled by user", progress=0.0, sources_found=0,
+            )
+            await consumer.ack(stream_id)
+            return
 
         result = await run_pipeline(
             job=job,
             status_cb=lambda status, msg, progress=0.0, sources=0: (
                 consumer.publish_status(job_id, status, msg, progress, sources)
             ),
+            cancel_check=cancel_check,
         )
+
+        if await cancel_check():
+            log.info("job %s stopped after pipeline — cancel flag (race)", job_id)
+            await consumer.publish_status(
+                job_id, "cancelled", "Cancelled by user", progress=0.0, sources_found=0,
+            )
+            await consumer.ack(stream_id)
+            return
 
         await _deliver_result(job_id, result)
         await consumer.publish_status(
@@ -50,6 +68,13 @@ async def _process_job(consumer: QueueConsumer, stream_id: str, job) -> None:
         )
         await consumer.ack(stream_id)
         log.info("job %s complete — %d sources", job_id, len(result.get("sources", [])))
+
+    except JobCancelledError:
+        log.info("job %s stopped (cooperative cancel)", job_id)
+        await consumer.publish_status(
+            job_id, "cancelled", "Cancelled by user", progress=0.0, sources_found=0,
+        )
+        await consumer.ack(stream_id)
 
     except Exception as exc:
         log.exception("job %s failed: %s", job_id, exc)

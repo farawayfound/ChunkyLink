@@ -14,9 +14,19 @@ services:
     environment:
       - DATA_DIR=/app/data
       - OLLAMA_BASE_URL=http://ollama:11434
+      - REDIS_URL=redis://redis:6379/0
     command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - ollama
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
     restart: unless-stopped
 
   ollama:
@@ -29,3 +39,4 @@ services:
 
 volumes:
   ollama_data:
+  redis_data:

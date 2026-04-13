@@ -21,6 +21,12 @@ class _FakeQueue:
     async def publish_status(self, update) -> None:
         pass
 
+    async def purge_job(self, job_id: str) -> None:
+        pass
+
+    async def set_cancel_requested(self, job_id: str) -> None:
+        pass
+
 
 @pytest.fixture
 def library_env(tmp_path, monkeypatch):
@@ -78,6 +84,33 @@ async def test_submit_research_enqueues_and_persists(library_env):
     assert len(rows) == 1
     assert rows[0]["id"] == res["job_id"]
     assert rows[0]["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_submit_rejects_max_sources_above_cap(library_env):
+    with pytest.raises(ValueError, match="max_sources"):
+        await library_service.submit_research(
+            user_id="u-test",
+            prompt="Topic with too many sources requested.",
+            max_sources=21,
+        )
+
+
+@pytest.mark.asyncio
+async def test_submit_rejects_third_concurrent_active_task(library_env):
+    await library_service.submit_research(
+        user_id="u-test",
+        prompt="Concurrent limit test task one.",
+    )
+    await library_service.submit_research(
+        user_id="u-test",
+        prompt="Concurrent limit test task two.",
+    )
+    with pytest.raises(ValueError, match="at most 2"):
+        await library_service.submit_research(
+            user_id="u-test",
+            prompt="Concurrent limit test task three should fail.",
+        )
 
 
 @pytest.mark.asyncio

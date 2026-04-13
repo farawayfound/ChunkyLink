@@ -1,5 +1,41 @@
 const BASE = "/api";
 
+function looksLikeHtmlSnippet(s: string): boolean {
+  const t = s.trim().slice(0, 240).toLowerCase();
+  return (
+    t.startsWith("<!doctype") ||
+    t.startsWith("<html") ||
+    (t.includes("<head") && t.includes("<body")) ||
+    t.includes("<title>chunkylink") ||
+    (t.includes("<script") && t.includes("vite"))
+  );
+}
+
+/** Parse error bodies whether the server returns JSON or HTML (e.g. SPA/login pages). */
+async function readHttpErrorDetail(res: Response): Promise<string> {
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+  if (ct.includes("application/json")) {
+    try {
+      const j = (await res.json()) as { detail?: string; error?: string; message?: string };
+      return String(j.detail || j.error || j.message || res.statusText || "Request failed");
+    } catch {
+      return res.statusText || "Request failed";
+    }
+  }
+  const text = await res.text();
+  if (looksLikeHtmlSnippet(text)) {
+    if (res.status === 401 || res.status === 403) {
+      return "Sign in required or session expired — the server returned a web page instead of JSON.";
+    }
+    return (
+      `Server returned HTML instead of JSON (HTTP ${res.status}). ` +
+      "You may be signed out, or the browser is not reaching the API (check dev proxy / base URL)."
+    );
+  }
+  const snip = text.trim().slice(0, 280);
+  return snip || res.statusText || "Request failed";
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     credentials: "include",
@@ -7,16 +43,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || body.error || res.statusText);
+    const detail = await readHttpErrorDetail(res);
+    throw new Error(detail);
   }
-  const ct = res.headers.get("content-type") || "";
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
   if (!ct.includes("application/json")) {
+    const text = await res.text();
+    if (looksLikeHtmlSnippet(text)) {
+      throw new Error(
+        "API returned HTML instead of JSON — try signing in again, or verify the app is proxying /api to the backend.",
+      );
+    }
     throw new Error(
-      `Expected JSON response but received ${ct || "unknown content-type"} — the API may be unreachable`,
+      `Expected JSON but received ${ct || "unknown content-type"}. Start of body: ${text.trim().slice(0, 160)}`,
     );
   }
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 // Auth
