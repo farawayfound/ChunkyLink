@@ -144,6 +144,17 @@ class RedisQueue(QueueBackend):
     async def set_cancel_requested(self, job_id: str) -> None:
         await self._r.setex(f"{_CANCEL_PREFIX}{job_id}", _CANCEL_TTL_SEC, "1")
 
+    async def scan_keys(self, match: str) -> list[str]:
+        """Return keys matching a glob pattern (non-blocking SCAN)."""
+        keys: list[str] = []
+        async for k in self._r.scan_iter(match=match):
+            keys.append(k)
+        return keys
+
+    async def get_key(self, key: str) -> str | None:
+        val = await self._r.get(key)
+        return val
+
     async def purge_job(self, job_id: str) -> None:
         """Drop stream entries and pending deliveries for this job_id."""
         r = self._r

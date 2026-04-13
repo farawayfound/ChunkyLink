@@ -1,6 +1,7 @@
 # Worker dependencies (nanobot)
 redis[hiredis]>=5.0.0
 httpx>=0.27.0
+psutil>=5.9.0
 duckduckgo-search>=7.0.0
 crawl4ai>=0.4.0
 playwright>=1.49.0

@@ -47,10 +47,11 @@ def _promote_nlp_category(enriched: Dict) -> Dict:
 
 
 def _enrich(record: Dict, text: str, path: Path, auto_tag: bool = None,
-            categories: list = None) -> Dict:
-    text = sanitize_pii(text)
-    if "text_raw" in record:
-        record["text_raw"] = sanitize_pii(record["text_raw"])
+            categories: list = None, *, redact_pii: bool = True) -> Dict:
+    if redact_pii:
+        text = sanitize_pii(text)
+        if "text_raw" in record:
+            record["text_raw"] = sanitize_pii(record["text_raw"])
     enriched = enrich_record_with_nlp(
         add_topic_metadata(record, path), text,
         auto_tag=auto_tag, categories=categories,
@@ -123,7 +124,7 @@ def _clean_index_output(out_path: Path):
 
 
 def main(src_dir: str = None, out_dir: str = None, config_overrides: dict = None,
-         full_rebuild: bool = False):
+         full_rebuild: bool = False, sanitize_pii: bool = True):
     """Run the indexing pipeline.
 
     Args:
@@ -131,6 +132,7 @@ def main(src_dir: str = None, out_dir: str = None, config_overrides: dict = None
         out_dir: Output index directory. Defaults to settings.INDEXES_DIR / "demo".
         config_overrides: Optional dict of settings to override (e.g. per-user chunking config).
         full_rebuild: If True, wipe existing index data and rebuild from scratch.
+        sanitize_pii: When True, redact PII/confidential patterns during indexing (admin-controlled per index type).
     """
     settings = get_settings()
     if src_dir is None:
@@ -182,9 +184,11 @@ def main(src_dir: str = None, out_dir: str = None, config_overrides: dict = None
         "TESSERACT_PATH": settings.TESSERACT_PATH,
         "ENABLE_CAMELOT": settings.ENABLE_CAMELOT,
         "ENABLE_AUTO_CLASSIFICATION": settings.ENABLE_AUTO_CLASSIFICATION,
+        "SANITIZE_PII": sanitize_pii,
     }
     if config_overrides:
         cfg.update({k: v for k, v in config_overrides.items() if k in cfg})
+    cfg["SANITIZE_PII"] = sanitize_pii
 
     # Remove old records for modified files
     for path in files_by_status['modified']:
@@ -301,6 +305,7 @@ def _process_file_inline(path: Path, cfg: dict, out_path: Path) -> dict:
     router_docs, router_chapters, raw_detail = [], [], []
     auto_tag = cfg.get("ENABLE_AUTO_TAGGING")
     auto_classify = cfg.get("ENABLE_AUTO_CLASSIFICATION", True)
+    redact = cfg.get("SANITIZE_PII", True)
     full_text = ""
 
     try:
@@ -320,7 +325,9 @@ def _process_file_inline(path: Path, cfg: dict, out_path: Path) -> dict:
             if 'glossary' in path.name.lower():
                 doc = fitz.open(str(path))
                 try:
-                    text = ' '.join([normalize_text(pg.get_text('text')) for pg in doc])
+                    text = ' '.join([
+                        normalize_text(pg.get_text('text'), sanitize_pii=redact) for pg in doc
+                    ])
                     page_count = doc.page_count
                 finally:
                     doc.close()
@@ -403,17 +410,21 @@ def _process_file_inline(path: Path, cfg: dict, out_path: Path) -> dict:
     detail = []
     for r in raw_detail:
         text = r.get('text_raw') or r.get('text') or ''
-        detail.append(_enrich(r, text, path, auto_tag, categories=categories))
+        detail.append(_enrich(r, text, path, auto_tag, categories=categories, redact_pii=redact))
 
     enriched_router_chapters = []
     for r in router_chapters:
         text = r.get('summary') or ''
-        enriched_router_chapters.append(_enrich(r, text, path, auto_tag, categories=categories))
+        enriched_router_chapters.append(
+            _enrich(r, text, path, auto_tag, categories=categories, redact_pii=redact)
+        )
 
     enriched_router_docs = []
     for r in router_docs:
         text = r.get('summary') or full_text or ''
-        enriched_router_docs.append(_enrich(r, text, path, auto_tag, categories=categories))
+        enriched_router_docs.append(
+            _enrich(r, text, path, auto_tag, categories=categories, redact_pii=redact)
+        )
 
     min_words = cfg.get('CHUNK_QUALITY_MIN_WORDS', 10)
     detail = [c for c in detail if is_quality_chunk(c.get('text_raw', c.get('text', '')), min_words)]

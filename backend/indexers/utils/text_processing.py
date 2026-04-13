@@ -58,8 +58,8 @@ def sanitize_for_json(s: str) -> str:
     return s.strip()
 
 
-def normalize_text(s: str) -> str:
-    from backend.indexers.utils.pii_sanitizer import sanitize_pii
+def normalize_text(s: str, *, sanitize_pii: bool = True) -> str:
+    from backend.indexers.utils.pii_sanitizer import sanitize_pii as _sanitize_pii
 
     s = s.replace("\u00ad", "")
     s = s.replace("\ufb01", "fi").replace("\ufb02", "fl")
@@ -78,11 +78,12 @@ def normalize_text(s: str) -> str:
     s = re.sub(r" +", " ", s)
     s = re.sub(r"\n{3,}", "\n\n", s)
     s = s.strip()
-    s = sanitize_pii(s)
+    if sanitize_pii:
+        s = _sanitize_pii(s)
     return sanitize_for_json(s)
 
 
-def get_pdf_outline(doc: "fitz.Document") -> List[Tuple[int, str, int]]:
+def get_pdf_outline(doc: "fitz.Document", *, sanitize_pii: bool = True) -> List[Tuple[int, str, int]]:
     try:
         toc = doc.get_toc(simple=True)
     except Exception:
@@ -90,13 +91,13 @@ def get_pdf_outline(doc: "fitz.Document") -> List[Tuple[int, str, int]]:
     out = []
     for item in toc:
         if len(item) >= 3:
-            level, title, page_no = item[0], normalize_text(item[1]), int(item[2]) - 1
+            level, title, page_no = item[0], normalize_text(item[1], sanitize_pii=sanitize_pii), int(item[2]) - 1
             out.append((level, title, page_no))
     return out
 
 
-def build_hierarchy(doc: "fitz.Document", max_depth: int = 6) -> List[Dict[str, Any]]:
-    toc = get_pdf_outline(doc)
+def build_hierarchy(doc: "fitz.Document", max_depth: int = 6, sanitize_pii: bool = True) -> List[Dict[str, Any]]:
+    toc = get_pdf_outline(doc, sanitize_pii=sanitize_pii)
     if not toc:
         step = max(10, max(1, doc.page_count // 15))
         out = []

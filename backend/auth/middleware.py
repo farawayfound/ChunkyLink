@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Cookie-based session authentication middleware and dependency injection."""
+import logging
 import secrets
 from datetime import datetime, timezone, timedelta
 from functools import wraps
@@ -12,6 +13,8 @@ from backend.database import get_db
 
 SESSION_COOKIE = "chunkylink_session"
 SESSION_DURATION_DAYS = 30
+
+log = logging.getLogger(__name__)
 
 
 async def create_session(
@@ -43,6 +46,10 @@ async def get_current_user(request: Request) -> dict | None:
     """Extract and validate session from cookie. Returns user dict or None."""
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
+        log.info(
+            "auth: no session cookie on %s %s (cookies_seen=%s)",
+            request.method, request.url.path, list(request.cookies.keys()),
+        )
         return None
 
     db = await get_db()
@@ -55,11 +62,19 @@ async def get_current_user(request: Request) -> dict | None:
         )
         row = await cursor.fetchone()
         if not row:
+            log.info(
+                "auth: session token not found in DB on %s %s (token_prefix=%s)",
+                request.method, request.url.path, token[:8],
+            )
             return None
 
         row_dict = dict(row)
         expires = datetime.fromisoformat(row_dict["expires_at"])
         if datetime.now(timezone.utc) > expires:
+            log.info(
+                "auth: session expired on %s %s (user=%s, expires=%s)",
+                request.method, request.url.path, row_dict.get("user_id"), row_dict["expires_at"],
+            )
             await db.execute("DELETE FROM sessions WHERE token = ?", (token,))
             await db.commit()
             return None

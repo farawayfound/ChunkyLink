@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import {
   getAdminStats,
+  getAdminSystem,
   getAdminUsers,
   getInviteCodes,
   createInviteCode,
@@ -80,19 +81,157 @@ export function AdminPanel() {
   );
 }
 
+type SysProc = { pid: number; name: string; user: string; cpu: number; mem: number };
+type SysSnapshot = {
+  host: string;
+  platform: string;
+  timestamp: number;
+  uptime_sec: number;
+  worker_id?: string;
+  cpu: { percent: number; per_core: number[]; count: number; load_avg: number[] | null };
+  memory: { total: number; used: number; available: number; percent: number };
+  disk: { path: string; total: number; used: number; free: number; percent: number };
+  processes: SysProc[];
+};
+type SystemResponse = { local: SysSnapshot; workers: SysSnapshot[]; queue_error: string | null };
+
+function formatBytes(n: number): string {
+  if (!n) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
+  return `${(n / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
+
+function formatUptime(sec: number): string {
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function Bar({ percent, label }: { percent: number; label: string }) {
+  const color = percent > 85 ? "#ef4444" : percent > 65 ? "#f59e0b" : "#22c55e";
+  return (
+    <div style={{ marginBottom: "0.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", marginBottom: "0.15rem" }}>
+        <span>{label}</span>
+        <span>{percent.toFixed(1)}%</span>
+      </div>
+      <div style={{ height: "6px", background: "var(--bg-subtle, #e5e7eb)", borderRadius: "3px", overflow: "hidden" }}>
+        <div style={{ width: `${Math.min(100, percent)}%`, height: "100%", background: color, transition: "width 0.4s" }} />
+      </div>
+    </div>
+  );
+}
+
+function HostCard({ label, snap, offline }: { label: string; snap: SysSnapshot | null; offline?: boolean }) {
+  if (!snap) {
+    return (
+      <div className="stat-card" style={{ padding: "1rem", textAlign: "left" }}>
+        <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>{label}</div>
+        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+          {offline ? "offline — no recent stats" : "loading…"}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="stat-card" style={{ padding: "1rem", textAlign: "left" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>{label}</div>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+            {snap.host} · {snap.platform} · up {formatUptime(snap.uptime_sec)}
+          </div>
+        </div>
+        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textAlign: "right" }}>
+          {snap.cpu.count} cores
+          {snap.cpu.load_avg && <div>load {snap.cpu.load_avg.map((x) => x.toFixed(2)).join(" ")}</div>}
+        </div>
+      </div>
+      <Bar percent={snap.cpu.percent} label="CPU" />
+      <Bar percent={snap.memory.percent} label={`Memory (${formatBytes(snap.memory.used)} / ${formatBytes(snap.memory.total)})`} />
+      <Bar percent={snap.disk.percent} label={`Disk ${snap.disk.path} (${formatBytes(snap.disk.used)} / ${formatBytes(snap.disk.total)})`} />
+
+      <details style={{ marginTop: "0.5rem" }}>
+        <summary style={{ cursor: "pointer", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+          Top processes ({snap.processes.length})
+        </summary>
+        <table style={{ width: "100%", fontSize: "0.75rem", marginTop: "0.35rem", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: "var(--text-muted)" }}>
+              <th style={{ padding: "2px 4px" }}>PID</th>
+              <th style={{ padding: "2px 4px" }}>Name</th>
+              <th style={{ padding: "2px 4px", textAlign: "right" }}>CPU%</th>
+              <th style={{ padding: "2px 4px", textAlign: "right" }}>Mem%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {snap.processes.map((p) => (
+              <tr key={p.pid}>
+                <td style={{ padding: "2px 4px", fontFamily: "monospace" }}>{p.pid}</td>
+                <td style={{ padding: "2px 4px" }}>{p.name}</td>
+                <td style={{ padding: "2px 4px", textAlign: "right" }}>{p.cpu.toFixed(1)}</td>
+                <td style={{ padding: "2px 4px", textAlign: "right" }}>{p.mem.toFixed(1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </div>
+  );
+}
+
 function OverviewTab() {
   const [stats, setStats] = useState<Record<string, number> | null>(null);
+  const [system, setSystem] = useState<SystemResponse | null>(null);
+
   useEffect(() => {
     getAdminStats().then(setStats).catch(() => {});
   }, []);
 
-  if (!stats) return <p>Loading...</p>;
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () => {
+      getAdminSystem()
+        .then((d) => { if (!cancelled) setSystem(d); })
+        .catch(() => {});
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
   return (
-    <div className="stats-grid">
-      <div className="stat-card"><div className="stat-value">{stats.users}</div><div className="stat-label">Users</div></div>
-      <div className="stat-card"><div className="stat-value">{stats.active_invite_codes}</div><div className="stat-label">Active Codes</div></div>
-      <div className="stat-card"><div className="stat-value">{stats.active_sessions}</div><div className="stat-label">Sessions</div></div>
-      <div className="stat-card"><div className="stat-value">{stats.activity_last_24h}</div><div className="stat-label">Activity (24h)</div></div>
+    <div>
+      {stats ? (
+        <div className="stats-grid">
+          <div className="stat-card"><div className="stat-value">{stats.users}</div><div className="stat-label">Users</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.active_invite_codes}</div><div className="stat-label">Active Codes</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.active_sessions}</div><div className="stat-label">Sessions</div></div>
+          <div className="stat-card"><div className="stat-value">{stats.activity_last_24h}</div><div className="stat-label">Activity (24h)</div></div>
+        </div>
+      ) : (
+        <p>Loading...</p>
+      )}
+
+      <h3 style={{ marginTop: "1.5rem" }}>Resource Monitor</h3>
+      {system?.queue_error && (
+        <div style={{ fontSize: "0.8rem", color: "var(--danger, #ef4444)", marginBottom: "0.5rem" }}>
+          Worker stats unavailable: {system.queue_error}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "1rem" }}>
+        <HostCard label="macmini (backend)" snap={system?.local ?? null} />
+        {system && system.workers.length === 0 && (
+          <HostCard label="nanobot (worker)" snap={null} offline />
+        )}
+        {system?.workers.map((w) => (
+          <HostCard key={w.worker_id ?? w.host} label={`${w.worker_id ?? "worker"} (nanobot)`} snap={w} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -989,6 +1128,93 @@ function PerfDetail({ entry, loading, thinkMs, totalMs }: {
   );
 }
 
+/** Admin-only toggles for PII redaction during index builds (Workspace vs AMA KB). */
+function IndexSanitizeSettings(props: {
+  workspace: boolean;
+  amaKb: boolean;
+  setWorkspace: (v: boolean) => void;
+  setAmaKb: (v: boolean) => void;
+  setError: (e: string | null) => void;
+  flash: (msg: string) => void;
+}) {
+  const { workspace, amaKb, setWorkspace, setAmaKb, setError, flash } = props;
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const card: React.CSSProperties = {
+    padding: "1.25rem 1.5rem",
+    background: "var(--bg-card)",
+    border: "1px solid var(--border)",
+    borderRadius: "8px",
+    marginBottom: "1.5rem",
+  };
+
+  const row: React.CSSProperties = {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "0.6rem",
+    marginBottom: "0.75rem",
+    cursor: busy ? "wait" : "pointer",
+    opacity: busy ? 0.7 : 1,
+  };
+
+  async function apply(
+    key: "index_sanitize_workspace" | "index_sanitize_ama_kb",
+    next: boolean,
+    prev: boolean,
+    setLocal: (v: boolean) => void,
+  ) {
+    setLocal(next);
+    setBusy(key);
+    setError(null);
+    try {
+      await updateAdminConfig({ [key]: next });
+      flash("Index redaction setting saved.");
+    } catch (e: any) {
+      setLocal(prev);
+      setError(e.message || "Failed to save setting");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div style={card}>
+      <h4 style={{ margin: "0 0 0.4rem" }}>Index PII redaction</h4>
+      <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 1rem" }}>
+        When enabled, emails, phones, credentials, and similar patterns are redacted in extracted text before chunks are
+        written to the index. Turn off only if you accept that indexed content may retain sensitive data. Applies to the
+        next index build — users must rebuild Workspace indexes; use <strong>Build Index</strong> here for AMA KB.
+      </p>
+      <label style={row}>
+        <input
+          type="checkbox"
+          checked={workspace}
+          disabled={!!busy}
+          onChange={(e) => {
+            void apply("index_sanitize_workspace", e.target.checked, workspace, setWorkspace);
+          }}
+        />
+        <span>
+          <strong>Workspace</strong> — redact when users build indexes from Workspace / Your Documents uploads.
+        </span>
+      </label>
+      <label style={{ ...row, marginBottom: 0 }}>
+        <input
+          type="checkbox"
+          checked={amaKb}
+          disabled={!!busy}
+          onChange={(e) => {
+            void apply("index_sanitize_ama_kb", e.target.checked, amaKb, setAmaKb);
+          }}
+        />
+        <span>
+          <strong>AMA KB</strong> — redact when building the Ask Me Anything knowledge base index from the AMA KB tab.
+        </span>
+      </label>
+    </div>
+  );
+}
+
 // ── Configuration Tab ─────────────────────────────────────────────────────────
 
 const CTX_PRESETS = [
@@ -1020,6 +1246,9 @@ function ConfigurationTab() {
   const [systemRules, setSystemRules] = useState("");
   const [systemRulesDraft, setSystemRulesDraft] = useState("");
 
+  const [indexSanitizeWorkspace, setIndexSanitizeWorkspace] = useState(true);
+  const [indexSanitizeAmaKb, setIndexSanitizeAmaKb] = useState(true);
+
   const load = useCallback(() => {
     setLoading(true);
     getAdminConfig()
@@ -1030,6 +1259,8 @@ function ConfigurationTab() {
         setSystemPromptDraft(d.system_prompt ?? "");
         setSystemRules(d.system_rules ?? "");
         setSystemRulesDraft(d.system_rules ?? "");
+        setIndexSanitizeWorkspace(d.index_sanitize_workspace !== false);
+        setIndexSanitizeAmaKb(d.index_sanitize_ama_kb !== false);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -1165,6 +1396,15 @@ function ConfigurationTab() {
           {success}
         </div>
       )}
+
+      <IndexSanitizeSettings
+        workspace={indexSanitizeWorkspace}
+        amaKb={indexSanitizeAmaKb}
+        setWorkspace={setIndexSanitizeWorkspace}
+        setAmaKb={setIndexSanitizeAmaKb}
+        setError={setError}
+        flash={flash}
+      />
 
       {/* ── Context Window ── */}
       <div style={sectionStyle}>
@@ -1336,6 +1576,9 @@ function DemoKBTab() {
   const [amaSaving, setAmaSaving] = useState<string | null>(null);
   const [amaSuccess, setAmaSuccess] = useState<string | null>(null);
 
+  const [indexSanitizeWorkspace, setIndexSanitizeWorkspace] = useState(true);
+  const [indexSanitizeAmaKb, setIndexSanitizeAmaKb] = useState(true);
+
   const loadDocs = useCallback(() => {
     getDemoDocuments().then((d) => setDocs(d.documents)).catch(() => {});
   }, []);
@@ -1358,6 +1601,8 @@ function DemoKBTab() {
       setAmaPromptDraft(d.ama_system_prompt ?? "");
       setAmaRules(d.ama_system_rules ?? "");
       setAmaRulesDraft(d.ama_system_rules ?? "");
+      setIndexSanitizeWorkspace(d.index_sanitize_workspace !== false);
+      setIndexSanitizeAmaKb(d.index_sanitize_ama_kb !== false);
     }).catch(() => {});
   }, []);
 
@@ -1619,6 +1864,15 @@ function DemoKBTab() {
           <button onClick={() => setError(null)} style={{ marginLeft: 8, background: "none", border: "none", color: "inherit", cursor: "pointer", fontWeight: 700 }}>x</button>
         </div>
       )}
+
+      <IndexSanitizeSettings
+        workspace={indexSanitizeWorkspace}
+        amaKb={indexSanitizeAmaKb}
+        setWorkspace={setIndexSanitizeWorkspace}
+        setAmaKb={setIndexSanitizeAmaKb}
+        setError={setError}
+        flash={amaFlash}
+      />
 
       {/* ── Upload area ── */}
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", marginBottom: "1.5rem" }}>

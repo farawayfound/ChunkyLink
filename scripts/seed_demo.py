@@ -62,7 +62,11 @@ def main():
 
     print("\nBuilding index...")
     from backend.indexers.build_index import main as build_main
-    build_main(src_dir=str(demo_uploads), out_dir=str(demo_index))
+    build_main(
+        src_dir=str(demo_uploads),
+        out_dir=str(demo_index),
+        sanitize_pii=settings.INDEX_SANITIZE_AMA_KB,
+    )
 
     # Verify output
     chunk_count = 0

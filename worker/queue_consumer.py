@@ -94,6 +94,11 @@ class QueueConsumer:
         await self._redis.xadd(key, payload, maxlen=50)
         await self._redis.expire(key, 86400)
 
+    async def set_key(self, key: str, value: str, ttl_sec: int) -> None:
+        """Store an arbitrary key with TTL — used by the stats publisher."""
+        assert self._redis
+        await self._redis.set(key, value, ex=ttl_sec)
+
     async def is_cancel_requested(self, job_id: str) -> bool:
         """True if the API set a cooperative-cancel flag for this job (see backend library queue)."""
         assert self._redis

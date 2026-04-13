@@ -21,5 +21,8 @@ pytesseract>=0.3.10
 # Queue / distributed worker
 redis[hiredis]>=5.0.0
 
+# System resource monitoring (admin dashboard)
+psutil>=5.9.0
+
 # NLP model (download separately: python -m spacy download en_core_web_md)
 # en_core_web_md

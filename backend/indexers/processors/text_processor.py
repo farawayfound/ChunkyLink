@@ -12,9 +12,10 @@ from backend.indexers.utils.ocr_processor import process_docx_images, process_pp
 
 def build_for_txt(txt_path: Path, cfg: Dict[str, Any]) -> Dict[str, Any]:
     logging.info(f"Processing TXT: {txt_path.name}")
+    sp = cfg.get("SANITIZE_PII", True)
     with open(txt_path, 'r', encoding='utf-8', errors='ignore') as f:
         raw_text = f.read()
-    text = normalize_text(raw_text)
+    text = normalize_text(raw_text, sanitize_pii=sp)
     words = text.split()
     parts = split_with_overlap(words, cfg.get("PARA_TARGET_TOKENS", 300), cfg.get("PARA_OVERLAP_TOKENS", 50))
     dedup_intensity = cfg.get("DEDUPLICATION_INTENSITY", 1)
@@ -41,6 +42,7 @@ def build_for_txt(txt_path: Path, cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 def build_for_docx(docx_path: Path, cfg: Dict[str, Any]) -> Dict[str, Any]:
     logging.info(f"Processing DOCX: {docx_path.name}")
+    sp = cfg.get("SANITIZE_PII", True)
     from docx import Document
     doc = Document(str(docx_path))
     image_texts = process_docx_images(doc, cfg)
@@ -48,7 +50,7 @@ def build_for_docx(docx_path: Path, cfg: Dict[str, Any]) -> Dict[str, Any]:
     sections = []
     current_section = {"title": docx_path.stem, "level": 1, "text": []}
     for para in doc.paragraphs:
-        text = normalize_text(para.text)
+        text = normalize_text(para.text, sanitize_pii=sp)
         if not text:
             continue
         if para.style.name.startswith('Heading'):
@@ -63,7 +65,7 @@ def build_for_docx(docx_path: Path, cfg: Dict[str, Any]) -> Dict[str, Any]:
     if ocr_text and sections:
         sections[-1]["text"].append(ocr_text)
     if not sections:
-        all_text = " ".join([normalize_text(p.text) for p in doc.paragraphs])
+        all_text = " ".join([normalize_text(p.text, sanitize_pii=sp) for p in doc.paragraphs])
         sections = [{"title": docx_path.stem, "level": 1, "text": [all_text]}]
 
     router_records, detail_records = [], []

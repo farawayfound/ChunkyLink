@@ -104,7 +104,11 @@ def _run_demo_index():
         from backend.indexers.build_index import main as build_main
         src = str(get_demo_upload_dir())
         out = str(get_demo_index_dir())
-        build_main(src_dir=src, out_dir=out)
+        build_main(
+            src_dir=src,
+            out_dir=out,
+            sanitize_pii=get_settings().INDEX_SANITIZE_AMA_KB,
+        )
         log_event("demo_index_complete")
 
         # Phase 2: Inject curated Q&A/STAR chunks
@@ -143,6 +147,43 @@ def _run_demo_index():
         logging.exception("Demo KB indexing failed")
         _demo_job = {"status": "failed", "step": "failed", "detail": None, "error": str(e)}
         log_event("demo_index_failed", error=str(e))
+
+
+@router.get("/system")
+async def admin_system(request: Request, user: dict = Depends(require_admin)):
+    """Resource snapshot for macmini (local) and any connected workers (via Redis).
+
+    Worker stats are pushed to `worker:stats:<worker_id>` with a short TTL,
+    so stale entries disappear on their own when a worker dies.
+    """
+    from backend import sysstats
+    from backend.library.queue import get_queue
+
+    local = sysstats.snapshot()
+
+    workers: list[dict] = []
+    queue_error: str | None = None
+    try:
+        q = get_queue()
+        keys = await q.scan_keys("worker:stats:*")
+        for k in keys:
+            raw = await q.get_key(k)
+            if not raw:
+                continue
+            try:
+                workers.append(json.loads(raw))
+            except json.JSONDecodeError:
+                continue
+    except RuntimeError as exc:
+        queue_error = str(exc)
+    except Exception as exc:
+        queue_error = f"worker stats unavailable: {exc}"
+
+    return {
+        "local": local,
+        "workers": workers,
+        "queue_error": queue_error,
+    }
 
 
 @router.get("/stats")
@@ -506,6 +547,8 @@ async def admin_get_config(request: Request, user: dict = Depends(require_admin)
         "system_rules": settings.SYSTEM_RULES_OVERRIDE or "",
         "ama_system_prompt": settings.AMA_SYSTEM_PROMPT_OVERRIDE or "",
         "ama_system_rules": settings.AMA_SYSTEM_RULES_OVERRIDE or "",
+        "index_sanitize_workspace": settings.INDEX_SANITIZE_WORKSPACE,
+        "index_sanitize_ama_kb": settings.INDEX_SANITIZE_AMA_KB,
         "model": settings.OLLAMA_MODEL,
     }
 
@@ -522,6 +565,8 @@ async def admin_update_config(
     - ``num_ctx`` (int)   — context window; triggers a model reload in Ollama
     - ``system_prompt``   — replaces the built-in system prompt (empty string = reset)
     - ``system_rules``    — extra rules appended to whichever prompt is active
+    - ``index_sanitize_workspace`` (bool) — PII redaction for user Workspace index builds
+    - ``index_sanitize_ama_kb`` (bool) — PII redaction for AMA KB index builds
     """
     body = await request.json()
     settings = get_settings()
@@ -557,6 +602,14 @@ async def admin_update_config(
         settings.AMA_SYSTEM_RULES_OVERRIDE = val or None
         changed.append("ama_system_rules")
 
+    if "index_sanitize_workspace" in body:
+        settings.INDEX_SANITIZE_WORKSPACE = bool(body["index_sanitize_workspace"])
+        changed.append("index_sanitize_workspace")
+
+    if "index_sanitize_ama_kb" in body:
+        settings.INDEX_SANITIZE_AMA_KB = bool(body["index_sanitize_ama_kb"])
+        changed.append("index_sanitize_ama_kb")
+
     if changed:
         settings.save_admin_config()
         log_event("admin_config_updated", user_id=user["user_id"], changed=",".join(changed))
@@ -574,6 +627,8 @@ async def admin_update_config(
         "system_rules": settings.SYSTEM_RULES_OVERRIDE or "",
         "ama_system_prompt": settings.AMA_SYSTEM_PROMPT_OVERRIDE or "",
         "ama_system_rules": settings.AMA_SYSTEM_RULES_OVERRIDE or "",
+        "index_sanitize_workspace": settings.INDEX_SANITIZE_WORKSPACE,
+        "index_sanitize_ama_kb": settings.INDEX_SANITIZE_AMA_KB,
         "reloading": reload_model,
     }
 

@@ -18,7 +18,8 @@ from backend.indexers.processors.table_extractor import extract_tables
 from backend.indexers.utils.ocr_processor import process_pdf_images
 
 
-def blocks_by_page(doc: "fitz.Document") -> List[List[Dict[str, Any]]]:
+def blocks_by_page(doc: "fitz.Document", cfg: Dict[str, Any]) -> List[List[Dict[str, Any]]]:
+    sp = cfg.get("SANITIZE_PII", True)
     pages = []
     for p in doc:
         blks = p.get_text("blocks")
@@ -26,7 +27,7 @@ def blocks_by_page(doc: "fitz.Document") -> List[List[Dict[str, Any]]]:
         page_elems = []
         for b in blks:
             x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], b[4]
-            txt = normalize_text(text)
+            txt = normalize_text(text, sanitize_pii=sp)
             if txt:
                 page_elems.append({"element_type": "paragraph", "text": txt, "bbox": [x0, y0, x1, y1]})
         pages.append(page_elems)
@@ -53,7 +54,7 @@ def build_for_pdf(pdf_path: Path, cfg: Dict[str, Any]) -> Dict[str, Any]:
     logging.info(f"Processing PDF: {pdf_path.name}")
     doc = fitz.open(str(pdf_path))
     try:
-        pages = blocks_by_page(doc)
+        pages = blocks_by_page(doc, cfg)
         tables = extract_tables(pdf_path, cfg)
         table_map = {}
         for tb in tables:
@@ -64,7 +65,9 @@ def build_for_pdf(pdf_path: Path, cfg: Dict[str, Any]) -> Dict[str, Any]:
         ocr_by_page = {}
         for img_data in image_texts:
             ocr_by_page.setdefault(img_data["page"] - 1, []).append(img_data["text"])
-        hierarchy = build_hierarchy(doc, cfg.get("MAX_HIERARCHY_DEPTH", 6))
+        hierarchy = build_hierarchy(
+            doc, cfg.get("MAX_HIERARCHY_DEPTH", 6), cfg.get("SANITIZE_PII", True)
+        )
         spans = slice_spans(hierarchy, doc.page_count)
         total_pages = len(pages)
     finally:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import signal
 import sys
@@ -10,7 +11,12 @@ import sys
 import httpx
 
 import config
+import sysstats
 from queue_consumer import QueueConsumer
+
+_STATS_KEY_PREFIX = "worker:stats:"
+_STATS_TTL_SEC = 30
+_STATS_INTERVAL_SEC = 10
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL, logging.INFO),
@@ -101,10 +107,32 @@ async def _deliver_result(job_id: str, result: dict) -> None:
         log.info("delivered result for %s — %s", job_id, resp.json())
 
 
+async def _publish_stats_loop(consumer: QueueConsumer) -> None:
+    """Push a system resource snapshot to Redis every few seconds.
+
+    Backend reads these under `worker:stats:<worker_id>` with a short TTL
+    so the admin UI can show "offline" automatically when the worker dies.
+    """
+    key = f"{_STATS_KEY_PREFIX}{config.WORKER_ID}"
+    while not _shutdown.is_set():
+        try:
+            snap = sysstats.snapshot()
+            snap["worker_id"] = config.WORKER_ID
+            await consumer.set_key(key, json.dumps(snap), _STATS_TTL_SEC)
+        except Exception as exc:
+            log.warning("stats publish failed: %s", exc)
+        try:
+            await asyncio.wait_for(_shutdown.wait(), timeout=_STATS_INTERVAL_SEC)
+        except asyncio.TimeoutError:
+            pass
+
+
 async def main() -> None:
     consumer = QueueConsumer(config.REDIS_URL, config.WORKER_ID)
     await consumer.connect()
     log.info("worker %s listening for jobs...", config.WORKER_ID)
+
+    stats_task = asyncio.create_task(_publish_stats_loop(consumer))
 
     try:
         while not _shutdown.is_set():
@@ -116,6 +144,11 @@ async def main() -> None:
     except asyncio.CancelledError:
         pass
     finally:
+        stats_task.cancel()
+        try:
+            await stats_task
+        except (asyncio.CancelledError, Exception):
+            pass
         await consumer.close()
         log.info("worker shut down cleanly")
 

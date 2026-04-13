@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Depends, BackgroundTasks
 
 from backend.auth.middleware import require_auth
+from backend.config import get_settings
 from backend.storage import get_user_upload_dir, get_user_index_dir, get_user_chunking_config
 from backend.logger import log_event
 
@@ -74,8 +75,13 @@ def _run_index(
     try:
         _active_jobs[user_id] = {"status": "running", "error": None}
         from backend.indexers.build_index import main as build_main
-        build_main(src_dir=src_dir, out_dir=out_dir, config_overrides=config_overrides,
-                   full_rebuild=True)
+        build_main(
+            src_dir=src_dir,
+            out_dir=out_dir,
+            config_overrides=config_overrides,
+            full_rebuild=True,
+            sanitize_pii=get_settings().INDEX_SANITIZE_WORKSPACE,
+        )
 
         if generate_insights:
             _active_jobs[user_id] = {"status": "building_insights", "error": None}

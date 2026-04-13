@@ -211,6 +211,7 @@ export const setPreserveFlag = (preserve: boolean) =>
 
 // Admin
 export const getAdminStats = () => request<any>("/admin/stats");
+export const getAdminSystem = () => request<any>("/admin/system");
 export const getAdminUsers = () => request<any>("/admin/users");
 export const getInviteCodes = () => request<any>("/admin/invite-codes");
 export const createInviteCode = (body: Record<string, unknown>) =>

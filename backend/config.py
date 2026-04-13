@@ -87,6 +87,9 @@ class Settings:
 
         # ── PII Sanitizer ──
         self.PII_INTERNAL_DOMAINS = [d.strip() for d in os.getenv("PII_INTERNAL_DOMAINS", "").split(",") if d.strip()]
+        # Index-time redaction (admin-configurable; persisted in admin_config.json)
+        self.INDEX_SANITIZE_WORKSPACE = os.getenv("INDEX_SANITIZE_WORKSPACE", "true").lower() == "true"
+        self.INDEX_SANITIZE_AMA_KB = os.getenv("INDEX_SANITIZE_AMA_KB", "true").lower() == "true"
 
         # ── Domain config (empty by default — users populate as needed) ──
         self.TERM_ALIASES: dict[str, list[str]] = {}
@@ -147,6 +150,10 @@ class Settings:
                 self.AMA_SYSTEM_PROMPT_OVERRIDE = data["ama_system_prompt"] or None
             if data.get("ama_system_rules") is not None:
                 self.AMA_SYSTEM_RULES_OVERRIDE = data["ama_system_rules"] or None
+            if "index_sanitize_workspace" in data:
+                self.INDEX_SANITIZE_WORKSPACE = bool(data["index_sanitize_workspace"])
+            if "index_sanitize_ama_kb" in data:
+                self.INDEX_SANITIZE_AMA_KB = bool(data["index_sanitize_ama_kb"])
         except Exception:
             pass
 
@@ -160,6 +167,8 @@ class Settings:
             "system_rules": self.SYSTEM_RULES_OVERRIDE or "",
             "ama_system_prompt": self.AMA_SYSTEM_PROMPT_OVERRIDE or "",
             "ama_system_rules": self.AMA_SYSTEM_RULES_OVERRIDE or "",
+            "index_sanitize_workspace": self.INDEX_SANITIZE_WORKSPACE,
+            "index_sanitize_ama_kb": self.INDEX_SANITIZE_AMA_KB,
             "suggestion_model": self.SUGGESTION_MODEL,
             "ollama_model": self.OLLAMA_MODEL,
         }
