@@ -79,12 +79,25 @@ async def get_current_user(request: Request) -> dict | None:
             await db.commit()
             return None
 
-        # Update last_seen
-        await db.execute(
-            "UPDATE users SET last_seen = ? WHERE id = ?",
-            (datetime.now(timezone.utc).isoformat(), row_dict["user_id"]),
-        )
-        await db.commit()
+        # Update last_seen — throttled: only write if it's been > 60s since last update
+        # to avoid hammering the DB with writes on every request.
+        last_seen_str = row_dict.get("last_seen")
+        now_utc = datetime.now(timezone.utc)
+        should_update = True
+        if last_seen_str:
+            try:
+                last_seen_dt = datetime.fromisoformat(last_seen_str)
+                if last_seen_dt.tzinfo is None:
+                    last_seen_dt = last_seen_dt.replace(tzinfo=timezone.utc)
+                should_update = (now_utc - last_seen_dt).total_seconds() > 60
+            except ValueError:
+                pass
+        if should_update:
+            await db.execute(
+                "UPDATE users SET last_seen = ? WHERE id = ?",
+                (now_utc.isoformat(), row_dict["user_id"]),
+            )
+            await db.commit()
 
         return {
             "user_id": row_dict["user_id"],
