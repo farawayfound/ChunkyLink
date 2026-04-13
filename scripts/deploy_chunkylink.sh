@@ -16,6 +16,15 @@
 #
 set -euo pipefail
 
+# This script is designed for Linux (systemd).
+# On macOS (the Mac Mini setup), use the dedicated updater instead:
+#   cd ~/chunkylink && git pull && bash scripts/setup_macmini.sh
+if [[ "$(uname)" == "Darwin" ]]; then
+  echo "ERROR: This script is for Linux/systemd only."
+  echo "On macOS, update with: cd ~/chunkylink && git pull && bash scripts/setup_macmini.sh"
+  exit 1
+fi
+
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE 2>/dev/null || true
 
 REPO_RAW="${CHUNKYLINK_REPO:-/srv/chunkylink/repo}"

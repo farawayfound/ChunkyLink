@@ -248,6 +248,11 @@ async def chat_ask(request: Request):
                     yield ": llm-generate\n\n"
                 yield f"data: {json.dumps(ev)}\n\n"
             yield "data: [DONE]\n\n"
+        except Exception as exc:
+            logging.warning("chat/ask stream error: %s", exc, exc_info=True)
+            err_ev = {"text": f"Sorry, the AI is unavailable right now. ({type(exc).__name__}: {exc})"}
+            yield f"data: {json.dumps(err_ev)}\n\n"
+            yield "data: [DONE]\n\n"
         finally:
             user_id = user["user_id"] if user else None
             user_name = (user.get("display_name") or user.get("github_username")) if user else None
@@ -348,6 +353,11 @@ async def chat_documents(request: Request):
                 elif ev.get("phase") == "generate":
                     yield ": llm-generate\n\n"
                 yield f"data: {json.dumps(ev)}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as exc:
+            logging.warning("chat/documents stream error: %s", exc, exc_info=True)
+            err_ev = {"text": f"Sorry, the AI is unavailable right now. ({type(exc).__name__}: {exc})"}
+            yield f"data: {json.dumps(err_ev)}\n\n"
             yield "data: [DONE]\n\n"
         finally:
             try:
