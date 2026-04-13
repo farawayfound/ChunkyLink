@@ -1045,13 +1045,21 @@ body {
 
 /* Request Access button */
 .btn-request-access {
-  background: transparent;
-  border-color: var(--primary);
-  color: var(--primary);
+  background: #0f5c5a;
+  border-color: #0f5c5a;
+  color: #f8fafc;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
 }
 .btn-request-access:hover {
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--text);
+  background: #0c4b49;
+  border-color: #0c4b49;
+  color: #ffffff;
+}
+.request-access-emphasis {
+  color: #f59e0b;
+  font-weight: 700;
 }
 
 /* Modal overlay */

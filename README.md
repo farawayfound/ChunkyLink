@@ -5,11 +5,12 @@ Self-hostable document RAG system with local LLM inference. No vector database �
 ## Features
 
 - **Ask Me Anything** — RAG-powered Q&A grounded in indexed documents
-- **Document Management** — Upload, index, and search your own documents (PDF, DOCX, PPTX, TXT, CSV)
+- **Workspace** — Upload, index, explore, and chat with your own documents (PDF, DOCX, PPTX, TXT, CSV)
+- **Library Research** — Queue web research tasks, review synthesized reports, and import approved artifacts into Workspace
 - **Local Inference** — Ollama integration with configurable models
 - **Invite System** — Share access via invite codes, no registration required
 - **Admin Dashboard** — Manage invite codes, monitor activity, system health
-- **Privacy-First** — Built-in PII sanitization, all data stays on your hardware
+- **Notifications & Privacy Controls** — Optional email notifications for long-running jobs; local-first storage with session-preserve controls
 
 ## Architecture
 
@@ -17,6 +18,7 @@ Self-hostable document RAG system with local LLM inference. No vector database �
 - **Frontend**: React + TypeScript (Vite)
 - **LLM**: Ollama (any compatible model)
 - **NLP**: spaCy for classification, tagging, and semantic linking
+- **Worker pipeline**: Background research/index jobs with review-before-import workflow
 
 ## Quick Start
 
@@ -36,6 +38,22 @@ cd frontend && npm install && npm run dev
 # Or use Docker
 cd docker && docker compose up
 ```
+
+On Windows PowerShell, copy the env template with:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+## Runtime behavior
+
+- By default, uploaded Workspace data is cleared on logout or after inactivity.
+- Users can opt in to preserve data for the next session from Workspace settings.
+- Library and index builds can optionally send completion emails when configured.
+
+## Deployment
+
+For production/server deployment details and helper scripts, see [`docs/deployment.md`](docs/deployment.md).
 
 ## Target Hardware
 

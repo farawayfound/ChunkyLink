@@ -49,9 +49,10 @@ export function Layout({ user, onLogout, children }: Props) {
             <>
               <button
                 onClick={() => setShowAccessModal(true)}
-                className="btn btn-sm btn-request-access"
+                className="btn btn-request-access"
               >
-                Request Access
+                Request <span className="request-access-emphasis">free</span> access to{" "}
+                <span className="request-access-emphasis">more</span> features!
               </button>
               <Link to="/login" className="btn btn-sm btn-primary">Login</Link>
             </>

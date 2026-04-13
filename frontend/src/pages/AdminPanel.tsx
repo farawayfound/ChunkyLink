@@ -1183,7 +1183,8 @@ function IndexSanitizeSettings(props: {
       <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 1rem" }}>
         When enabled, emails, phones, credentials, and similar patterns are redacted in extracted text before chunks are
         written to the index. Turn off only if you accept that indexed content may retain sensitive data. Applies to the
-        next index build — users must rebuild Workspace indexes; use <strong>Build Index</strong> here for AMA KB.
+        next index build — users must rebuild Workspace indexes; rebuild the AMA KB from the AMA KB admin tab
+        (<strong>Build Index</strong>).
       </p>
       <label style={row}>
         <input
@@ -1576,9 +1577,6 @@ function DemoKBTab() {
   const [amaSaving, setAmaSaving] = useState<string | null>(null);
   const [amaSuccess, setAmaSuccess] = useState<string | null>(null);
 
-  const [indexSanitizeWorkspace, setIndexSanitizeWorkspace] = useState(true);
-  const [indexSanitizeAmaKb, setIndexSanitizeAmaKb] = useState(true);
-
   const loadDocs = useCallback(() => {
     getDemoDocuments().then((d) => setDocs(d.documents)).catch(() => {});
   }, []);
@@ -1601,8 +1599,6 @@ function DemoKBTab() {
       setAmaPromptDraft(d.ama_system_prompt ?? "");
       setAmaRules(d.ama_system_rules ?? "");
       setAmaRulesDraft(d.ama_system_rules ?? "");
-      setIndexSanitizeWorkspace(d.index_sanitize_workspace !== false);
-      setIndexSanitizeAmaKb(d.index_sanitize_ama_kb !== false);
     }).catch(() => {});
   }, []);
 
@@ -1855,7 +1851,8 @@ function DemoKBTab() {
     <div>
       <p style={{ marginBottom: "1rem", color: "var(--text-muted)" }}>
         Upload documents here to power the public <strong>Ask Me Anything</strong> chat. After uploading, click
-        <strong> Build Index</strong> to make them searchable.
+        <strong> Build Index</strong> to make them searchable. Index PII redaction for Workspace and AMA KB is configured
+        in the <strong>Configuration</strong> tab.
       </p>
 
       {error && (
@@ -1864,15 +1861,6 @@ function DemoKBTab() {
           <button onClick={() => setError(null)} style={{ marginLeft: 8, background: "none", border: "none", color: "inherit", cursor: "pointer", fontWeight: 700 }}>x</button>
         </div>
       )}
-
-      <IndexSanitizeSettings
-        workspace={indexSanitizeWorkspace}
-        amaKb={indexSanitizeAmaKb}
-        setWorkspace={setIndexSanitizeWorkspace}
-        setAmaKb={setIndexSanitizeAmaKb}
-        setError={setError}
-        flash={amaFlash}
-      />
 
       {/* ── Upload area ── */}
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", marginBottom: "1.5rem" }}>

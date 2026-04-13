@@ -12,9 +12,10 @@ export function About() {
             <strong>ChunkyPotato</strong> is a self-hosted{" "}
             <abbr title="Retrieval-Augmented Generation">RAG</abbr> system I built as a portfolio demo: it answers
             questions from an ingested index, adding key knowledge to the model's context window. The{" "}
-            <strong>Ask Me Anything</strong> experience is grounded in a personal corpus (résumé, professional expereince narratives, 
-            academic and personal projects);
-            signed-in users can also upload and chat with their own documents for index building. The documents and your index will be deleted after session end for your privacy and security.
+            <strong>Ask Me Anything</strong> experience is grounded in a personal corpus (résumé, professional experience narratives,
+            academic and personal projects); signed-in users can also upload and chat with their own documents for index building, or use
+            Library to synthesize web research and import reviewed reports into Workspace.
+            By default, uploaded documents and indexes are cleared on logout or after inactivity; users can explicitly enable preservation for the next session.
             The goal is to show how ingestion, NLP metadata, retrieval, safety checks, and streaming APIs fit together in a real stack—not a slide-deck
             architecture diagram. The product name is a humorous confession about where it actually runs.
           </p>
@@ -50,7 +51,7 @@ export function About() {
             </li>
             <li>
               <strong>API</strong> — FastAPI (Uvicorn) exposes streaming chat and document workflows; SQLite backs
-              lightweight auth and invite codes.
+              lightweight auth, invite codes, and operational state (including background task tracking and notification preferences).
             </li>
             <li>
               <strong>Knowledge base</strong> — Chunks stored as <strong>JSONL</strong> (no separate vector database).
@@ -65,6 +66,10 @@ export function About() {
               <strong>RAG pipeline</strong> — Query handling → retrieval from the KB → <strong>relevance gating</strong>{" "}
               (symmetrical cross-referencing, deduplication, and ranking) → prompt assembly →
               streamed answer.
+            </li>
+            <li>
+              <strong>Research pipeline</strong> — Prompt submission → web crawl/scrape → synthesis artifact → human review →
+              optional import into Workspace before indexing.
             </li>
             <li>
               <strong>Beyond the web UI</strong> — A <strong>Model Context Protocol (MCP)</strong> server exposes tools
@@ -95,7 +100,7 @@ export function About() {
         <p className="muted about-footnote">
           First-token latency here is measured in “please stretch your legs” time. That is not a bug; it is the sound of
           local RAG meeting humble hardware. If the assistant pauses, assume it is either retrieving citations or
-          negotiating with a very small potato for one more FLOP.
+          negotiating with a very small potato for one more FLOP. The potato has unionized, but still accepts coffee.
         </p>
       </div>
     </div>
