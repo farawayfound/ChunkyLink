@@ -183,5 +183,9 @@ async def close_queue() -> None:
 
 
 def get_queue() -> QueueBackend:
-    assert _queue is not None, "queue not initialised — call init_queue() in lifespan"
+    if _queue is None:
+        raise RuntimeError(
+            "Redis queue is not connected. "
+            "Ensure Redis is running and REDIS_URL is set correctly."
+        )
     return _queue

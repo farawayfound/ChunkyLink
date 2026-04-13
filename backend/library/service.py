@@ -35,6 +35,7 @@ async def submit_research(
     prompt: str,
     max_sources: int = 10,
     focus_keywords: list[str] | None = None,
+    notify_email: str | None = None,
 ) -> dict:
     """Validate, persist a library_tasks row, and enqueue the job."""
     prompt = prompt.strip()
@@ -42,6 +43,8 @@ async def submit_research(
         raise ValueError("prompt is required")
     if len(prompt) > 2000:
         raise ValueError("prompt must be <=2000 characters")
+
+    queue = get_queue()
 
     job_id = new_job_id()
     now = _now_iso()
@@ -65,7 +68,7 @@ async def submit_research(
         focus_keywords=focus_keywords or [],
         created_at=now,
     )
-    await get_queue().enqueue(job)
+    await queue.enqueue(job)
 
     log.info("submitted research job %s for user %s", job_id, user_id)
     return {"job_id": job_id, "status": TaskStatus.QUEUED}

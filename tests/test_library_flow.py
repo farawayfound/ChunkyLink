@@ -139,3 +139,19 @@ async def test_approve_writes_upload_and_marks_approved(library_env):
 
     task = await library_service.get_task("u-test", job_id)
     assert task["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_submit_with_queue_down_raises_runtime_error(library_env, monkeypatch):
+    """When Redis is unavailable, submit should raise RuntimeError (not AssertionError)."""
+    from backend.library.queue import get_queue as real_get_queue
+    from backend.library import queue as queue_mod
+
+    monkeypatch.setattr(queue_mod, "_queue", None)
+    monkeypatch.setattr(library_service, "get_queue", real_get_queue)
+
+    with pytest.raises(RuntimeError, match="Redis queue is not connected"):
+        await library_service.submit_research(
+            user_id="u-test",
+            prompt="This should fail because the queue is down for testing purposes only.",
+        )

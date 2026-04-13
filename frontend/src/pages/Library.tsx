@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLibrary, type LibraryTask } from "../hooks/useLibrary";
-import { getLibraryTask } from "../api/client";
+import { getLibraryTask, getIndexEmailStatus } from "../api/client";
 
 type View = "list" | "detail";
 
@@ -44,26 +44,59 @@ export function Library() {
   const [detail, setDetail] = useState<LibraryTask | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [approveResult, setApproveResult] = useState<any>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  // Confirm modal state
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [hasStoredEmail, setHasStoredEmail] = useState(false);
+  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const handleSubmit = useCallback(async () => {
-    if (!prompt.trim() || submitting) return;
+  const displayError = localError || error;
+
+  // Open the confirm modal (pre-fetch email status)
+  const openConfirmModal = useCallback(async () => {
+    if (!prompt.trim()) return;
+    setConfirmError(null);
+    setShowConfirm(true);
     try {
-      await submit(prompt.trim(), { max_sources: maxSources });
-      setPrompt("");
+      const status = await getIndexEmailStatus();
+      setHasStoredEmail(status.has_email);
+      setConfirmEmail(status.email || "");
     } catch {
-      // error is set in hook
+      setHasStoredEmail(false);
+      setConfirmEmail("");
     }
-  }, [prompt, maxSources, submitting, submit]);
+  }, [prompt]);
+
+  const handleConfirmSubmit = useCallback(async () => {
+    if (!prompt.trim() || confirmSubmitting) return;
+    setConfirmError(null);
+    setConfirmSubmitting(true);
+    try {
+      await submit(prompt.trim(), {
+        max_sources: maxSources,
+        notify_email: confirmEmail.trim() || undefined,
+      });
+      setPrompt("");
+      setShowConfirm(false);
+      setLocalError(null);
+    } catch (e: any) {
+      setConfirmError(e.message || "Submission failed");
+    } finally {
+      setConfirmSubmitting(false);
+    }
+  }, [prompt, maxSources, confirmEmail, confirmSubmitting, submit]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit();
+      openConfirmModal();
     }
-  }, [handleSubmit]);
+  }, [openConfirmModal]);
 
   const openDetail = useCallback(async (id: string) => {
     setSelectedId(id);
@@ -118,7 +151,6 @@ export function Library() {
         <div className="library-input-section">
           <div className="library-input-row">
             <textarea
-              ref={textareaRef}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -128,10 +160,10 @@ export function Library() {
             />
             <button
               className="btn btn-primary"
-              onClick={handleSubmit}
+              onClick={openConfirmModal}
               disabled={submitting || !prompt.trim()}
             >
-              {submitting ? "Submitting..." : "Research"}
+              Research
             </button>
           </div>
           <div className="library-options-row">
@@ -159,7 +191,7 @@ export function Library() {
           </div>
         </div>
 
-        {error && <div className="library-error">{error}</div>}
+        {displayError && <div className="library-error">{displayError}</div>}
 
         <div className="library-task-list">
           {loading && tasks.length === 0 && (
@@ -198,6 +230,97 @@ export function Library() {
             </div>
           ))}
         </div>
+
+        {/* ── Confirm modal ── */}
+        {showConfirm && (
+          <div className="modal-backdrop" onClick={() => !confirmSubmitting && setShowConfirm(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 style={{ margin: 0 }}>Start Research</h3>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setShowConfirm(false)}
+                  disabled={confirmSubmitting}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div style={{ padding: "0.5rem 0 1rem 0", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                <p style={{ marginTop: 0 }}>
+                  The worker will search the web, scrape up to <strong>{maxSources}</strong> sources,
+                  and synthesize a report on:
+                </p>
+                <blockquote style={{
+                  margin: "0.75rem 0",
+                  padding: "0.5rem 0.75rem",
+                  borderLeft: "3px solid var(--primary)",
+                  color: "var(--text)",
+                  fontSize: "0.85rem",
+                  background: "var(--bg)",
+                  borderRadius: "0 6px 6px 0",
+                }}>
+                  {prompt}
+                </blockquote>
+
+                <p className="muted" style={{ fontSize: "0.78rem" }}>
+                  This may take several minutes. You can leave this page — we'll email you when it's ready for review.
+                </p>
+
+                <div style={{ marginTop: "1rem" }}>
+                  <label className="settings-label" htmlFor="library-notify-email">
+                    Notification email {hasStoredEmail ? "(on file)" : "(optional)"}
+                  </label>
+                  <input
+                    id="library-notify-email"
+                    type="email"
+                    value={confirmEmail}
+                    onChange={(e) => setConfirmEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      background: "var(--bg)",
+                      color: "var(--text)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "6px",
+                      fontSize: "0.85rem",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <div className="muted" style={{ fontSize: "0.72rem", marginTop: "0.3rem" }}>
+                    {hasStoredEmail
+                      ? "We already have your email. Edit to override."
+                      : "Leave blank to skip the notification."}
+                  </div>
+                </div>
+
+                {confirmError && (
+                  <div style={{ marginTop: "0.75rem", color: "var(--danger)", fontSize: "0.8rem" }}>
+                    {confirmError}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setShowConfirm(false)}
+                  disabled={confirmSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={handleConfirmSubmit}
+                  disabled={confirmSubmitting}
+                >
+                  {confirmSubmitting ? "Submitting..." : "Start Research"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
