@@ -1,16 +1,15 @@
 # Active Context
 
-## Current Focus
-- **NLP Optimization:** Refining the deduplication engine (`learn_engine.py`) to balance performance and accuracy. This includes utilizing keyword pre-filtering to minimize expensive spaCy vector computations during the 3rd pass static KB scan.
-- **Relevance & Safety:** Improving the RAG chat pipeline with relevance gating (`safeguard.py`). Responses are refused if the highest chunk similarity score doesn't meet the threshold, effectively mitigating LLM hallucinations.
-- **Dynamic Suggestions:** Implementing automated generation of chat prompt suggestions based on entities (ORG, PRODUCT) and categories identified by NLP in the user's indexed chunks.
+## Baseline
 
-## Recent Changes
-- Transitioned semantic similarity caching to use 300-dimension float32 arrays instead of full spaCy `Doc` objects to drastically lower memory usage (53MB vs 2-4GB for 44K chunks).
-- Implemented the `chat_documents` endpoint for multi-turn conversational capabilities over user-uploaded documents, maintaining chat history.
-- Added automated Jira CSV validation (UTF-8 check, column requirements) to prevent ingestion script failures.
+Memory bank **regenerated and aligned with the ChunkyPotato repo on 2026-04-13**. Before stating deploy steps, hostnames, or env defaults, **re-verify** `README.md` and `docs/deployment.md` — those are the source of truth for production layout (Mac mini LaunchAgent vs Linux `chunkylink` systemd, `DEPLOY_RESET_HARD`, frontend `dist/` rebuild, Cloudflare SSE).
 
-## Outstanding Topics & Next Steps
-- Scaling the cross-referencing logic (`cross_reference.py`) as the corpus grows, heavily relying on the optimized vector cache.
-- Continuous tuning of `CONTENT_TAGS` and phrase matchers for more accurate domain-specific auto-classification.
-- Monitoring the hit rate of the CSV ingestion fallback vs. direct MySQL access for Jira searches (`search_jira`).
+## Default agent assumptions
+
+- Product is **ChunkyPotato**; infra naming **chunkylink** where paths and services matter.
+- **Library** requires **Redis** and a running **`worker/`** consumer on the worker host; **AMA** requires only the **demo** index and Ollama.
+- **Learn / dedup** for library import paths: **`backend/learn/learn_engine.py`**, not `mcp_server/`.
+
+## Current focus (placeholder)
+
+No single active sprint is encoded here. When you start a focused effort (e.g. Library UX, indexer performance, deploy automation), replace this section with **one or two concrete bullets** so agents prioritize correctly.

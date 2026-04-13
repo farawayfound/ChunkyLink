@@ -1,16 +1,37 @@
 # Product Context
 
-## Why this project exists
-Engineering teams often deal with fragmented knowledge bases spanning wikis, PDFs, runbooks, and Jira tickets. Legacy keyword search tools (like PowerShell scripts) often fail to capture semantic meaning or provide actionable answers. 
-vpoRAG was created to unify this knowledge into a domain-aware format that can directly answer questions, summarize issues, and link related concepts.
+## Why this exists
 
-## Problems Solved
-- **Information Silos:** Integrates KB documents and Jira tickets (DPSTRIAGE, POSTRCA) into a single querying interface.
-- **Context Switching:** By providing an MCP server, engineers can query the KB and Jira directly within VS Code, without breaking their workflow.
-- **Knowledge Duplication:** The system's `learn_engine` employs a rigorous 3-pass semantic deduplication process to prevent redundant information from cluttering the knowledge base.
-- **Unstructured Data Navigation:** Uses NLP to automatically classify content into logical categories (troubleshooting, queries, sop, glossary) and extract key entities, making the data highly structured and discoverable.
+Small teams and self-hosters want **document Q&A** and **curated web research** without sending data to third-party LLM APIs. ChunkyPotato keeps **indexes and uploads on disk** you control, uses **Ollama** on your network, and adds **NLP structure** (tags, categories, cross-references) so answers stay tied to real chunks.
 
-## User Experience
-- **IDE Integration:** Engineers configure their Amazon Q VS Code extension with a simple `Bearer vporag-<PID>` token. Tools are auto-discovered during triage sessions.
-- **Web/Chat Interface:** Users can engage with the FastAPI chat backend in two modes: "Ask Me Anything" (AMA) using the global demo KB, or by interacting with their own uploaded documents.
-- **Zero-Touch Ingestion:** To update Jira data, users simply drop a CSV into a Samba share; the system automatically validates and ingests it.
+## Problems solved
+
+- **Fragmented documents:** Workspace turns uploads into searchable JSONL chunks with optional PII-aware indexing.
+- **AMA vs private docs:** AMA uses only the **demo KB**; Workspace uses **per-user** indexes — they are intentionally separate.
+- **Research without blind trust:** Library runs a **worker pipeline**, then requires **human review** before import into Workspace.
+- **Lightweight access control:** **Invite codes** (no mandatory registration); **Admin** for codes, health, demo index builds, and runtime config.
+
+## User experience (routes)
+
+From `frontend/src/App.tsx`:
+
+| Path | Purpose |
+|------|---------|
+| `/` | Ask Me Anything (demo KB) |
+| `/workspace` | Authenticated — uploads, index, chat |
+| `/library` | Authenticated — research jobs, review, import |
+| `/admin` | Authenticated admin |
+| `/about` | Product info |
+| `/resume` | Resume page |
+| `/login` | Invite / GitHub login |
+| `/documents` | Redirects to `/workspace` |
+
+## Session and privacy behavior
+
+- By default, **Workspace data** is cleared on **logout** or after **inactivity** (backend session cleanup in `backend/main.py`).
+- Users may **opt in** to preserve data for the next session from **Workspace settings** (`should_preserve_user_data` / storage helpers).
+- **Library** and **index builds** can send **optional completion email** when SMTP is configured.
+
+## Who it is for
+
+Home lab or small-office **self-hosting** on modest hardware (“potato cosplaying as a server”). Production split is often **Mac mini** for the app and **nanobot** for the Library worker — see `techContext.md`.
