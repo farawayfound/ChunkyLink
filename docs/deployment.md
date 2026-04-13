@@ -105,9 +105,17 @@ Commit and push to the same remote and branch the server tracks (typically **`ma
 
 If `origin` is set but fetch still fails, check SSH keys / HTTPS credentials on the server and that the URL is correct (`git -C /srv/chunkylink/repo remote -v`).
 
-### 2. Deploy on the server
+### 2. Deploy on the Linux server (nanobot)
 
-SSH in and run:
+On **nanobot** (and similar hosts where the repo is owned by **`chunkylink`** but deploy runs as **root** via **sudo**), a plain **`git pull --ff-only`** inside **`deploy_chunkylink.sh`** often **fails** (divergent history, stray commits, or tracked files touched during earlier deploys). The reliable command is:
+
+```bash
+sudo DEPLOY_RESET_HARD=1 bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh
+```
+
+**`DEPLOY_RESET_HARD=1`** makes the script **`git fetch`** then **`git reset --hard`** to the remote branch so **GitHub is truth** for tracked files. Ignored files (**`.env`**, **`data/`**, **`frontend/dist/`** if gitignored, etc.) are **not** removed.
+
+If you are certain the server branch is already a fast-forward behind **`origin`** (no local commits, no dirty tracked files), you can use the lighter command:
 
 ```bash
 sudo bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh
@@ -148,9 +156,9 @@ launchctl print "gui/$(id -u)/com.chunkylink.backend" | rg "state =|pid ="
 tail -n 100 ~/Library/Logs/chunkylink.log
 ```
 
-This will:
+**`deploy_chunkylink.sh`** will:
 
-1. **`git fetch`** / **`git pull --ff-only`** (fails if the server has diverging local commits).
+1. **`git fetch`** then either **`git pull --ff-only`** or, with **`DEPLOY_RESET_HARD=1`**, **`git reset --hard`** to match the remote (see [§ 2](#2-deploy-on-the-linux-server-nanobot)).
 2. **`pip install -r requirements.txt`** using `/srv/chunkylink/venv/bin/pip`.
 3. **`npm ci`** and **`npm run build`** in `frontend/` when Node is available via the invoking user’s nvm (`SUDO_USER`), unless **`DEPLOY_SKIP_NPM=1`**.
 4. **`chown -R chunkylink:chunkylink`** on the repo.
@@ -162,13 +170,19 @@ Backend-only change (skip frontend build):
 sudo DEPLOY_SKIP_NPM=1 bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh
 ```
 
+On **nanobot**, combine with reset if **`git pull`** would fail:
+
+```bash
+sudo DEPLOY_SKIP_NPM=1 DEPLOY_RESET_HARD=1 bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh
+```
+
 Merge a specific ref instead of the default pull (example):
 
 ```bash
 sudo GIT_REF=origin/main bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh
 ```
 
-**GitHub is truth; discard server-only edits** (uncommitted or extra local commits on the current branch—tracked files only; ignored files like **`.env`** are left alone):
+The same **`DEPLOY_RESET_HARD=1`** invocation is listed again here for quick reference when you hit **`git pull --ff-only` failed** during a normal deploy:
 
 ```bash
 sudo DEPLOY_RESET_HARD=1 bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh
@@ -183,7 +197,13 @@ From the project root on Windows (after **`git push`**):
 .\scripts\Deploy-Nanobot.ps1 -Target "david@nanobot.local"
 ```
 
-This runs **`sudo bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh`** over SSH. You still need a way to satisfy **sudo** (password prompt in an interactive session, or configured **NOPASSWD** for that command only).
+By default this runs **`sudo bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh`** over SSH. On **nanobot**, if that fails at **`git pull`**, run interactively with reset instead:
+
+```powershell
+ssh -t david@nanobot "sudo DEPLOY_RESET_HARD=1 bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh"
+```
+
+(Adjust user/host.) You still need a way to satisfy **sudo** (password prompt in an interactive session, or configured **NOPASSWD** for that command only).
 
 ### 4. After certain changes
 
@@ -221,7 +241,7 @@ If you prefer not to migrate an existing tree, you can clone into a new director
 | **`'origin' does not appear to be a git repository`** / fetch fails | **`origin` is missing or the URL is wrong.** Run **`link_chunkylink_git_remote.sh`** with your repo URL, or fix **`git remote set-url origin …`**. |
 | **`Need to specify how to reconcile divergent branches`** | On **`pull`**, add **`--no-rebase`** (merge) or **`--rebase`**, e.g. **`sudo git -C /srv/chunkylink/repo pull origin main --allow-unrelated-histories --no-rebase`**. |
 | **`fatal: not a git repository`** from **`~`** | Run Git with **`sudo git -C /srv/chunkylink/repo …`** (or **`cd`** there first). Your home directory is not the repo. |
-| **`git pull --ff-only` failed** / “local changes would be overwritten” | Uncommitted edits or diverged history. If **GitHub** should win: **`sudo DEPLOY_RESET_HARD=1 bash …/deploy_chunkylink.sh`** or **`sudo git -C /srv/chunkylink/repo fetch origin && sudo git -C /srv/chunkylink/repo reset --hard origin/main`**. |
+| **`git pull --ff-only` failed** / “local changes would be overwritten” | Common on **nanobot**. If **GitHub** should win, use [§ 2](#2-deploy-on-the-linux-server-nanobot): **`sudo DEPLOY_RESET_HARD=1 bash /srv/chunkylink/repo/scripts/deploy_chunkylink.sh`**. Alternatively: **`sudo git -C /srv/chunkylink/repo fetch origin && sudo git -C /srv/chunkylink/repo reset --hard origin/main`**, then rerun deploy without reset if you prefer. |
 | Frontend build skipped | Install **nvm** + Node under the sudo-ing user, or set **`DEPLOY_SKIP_NPM=1`** and supply **`frontend/dist`** another way. |
 | **Mac mini:** UI unstyled or clearly old after pull | Rebuild: **`cd ~/chunkylink/frontend && npm run build`**, then **`launchctl kickstart -k "gui/$(id -u)/com.chunkylink.backend"`**. See [§ 2a](#2a-deploy-on-davidmacmini-launchagent). |
 | Service not active after restart | **`journalctl -u chunkylink -e`** |
@@ -233,5 +253,5 @@ If you prefer not to migrate an existing tree, you can clone into a new director
 |--------|---------|
 | `scripts/init_chunkylink_git_on_server.sh` | One-time Git init + `.gitignore` + initial commit + `chown` |
 | `scripts/link_chunkylink_git_remote.sh` | Set **`origin`** URL (argument: remote URL) |
-| `scripts/deploy_chunkylink.sh` | Pull, dependencies, optional frontend build, `chown`, **`systemctl restart chunkylink`** |
+| `scripts/deploy_chunkylink.sh` | Pull (or reset with **`DEPLOY_RESET_HARD=1`**), dependencies, optional frontend build, `chown`, **`systemctl restart chunkylink`** — on **nanobot**, prefer **`DEPLOY_RESET_HARD=1`** ([§ 2](#2-deploy-on-the-linux-server-nanobot)). |
 | `scripts/Deploy-Nanobot.ps1` | Windows: SSH trigger for **`deploy_chunkylink.sh`** |

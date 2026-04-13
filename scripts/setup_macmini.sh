@@ -93,6 +93,29 @@ if ! pgrep -x ollama &>/dev/null; then
     sleep 3
 fi
 
+# ── 5b. Redis (required for Library/research queue) ─────────────────────────
+if command -v redis-server &>/dev/null; then
+    ok "Redis already installed: $(redis-server --version | awk '{print $3}')"
+else
+    info "Installing Redis..."
+    brew install redis
+    ok "Redis installed"
+fi
+
+if ! (brew services list 2>/dev/null | awk '$1=="redis"{print $2}' | grep -q started); then
+    info "Starting Redis service..."
+    brew services start redis
+    sleep 2
+fi
+
+if command -v redis-cli &>/dev/null; then
+    if redis-cli ping 2>/dev/null | grep -q PONG; then
+        ok "Redis is responding on localhost:6379"
+    else
+        warn "Redis installed but 'redis-cli ping' did not return PONG — try: brew services restart redis"
+    fi
+fi
+
 # Pull the default model (gemma4:e4b — effective 4B edge variant, consistent for RAG/chat)
 DEFAULT_MODEL="gemma4:e4b"
 if ollama list 2>/dev/null | grep -q "$DEFAULT_MODEL"; then

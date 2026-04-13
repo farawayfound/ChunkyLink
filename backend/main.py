@@ -155,13 +155,41 @@ async def lifespan(app: FastAPI):
     # Initialize database
     init_db_sync()
     await init_ollama_http()
-    # Connect Redis queue for Library (best-effort — feature degrades if Redis is down)
+    # Connect Redis queue for Library. We try once up-front and, on failure,
+    # keep retrying in a background task so the feature recovers automatically
+    # if redis comes up after the backend (systemd start order, brew services,
+    # docker-compose race, etc.) without requiring a service restart.
+    from backend.library.queue import init_queue, close_queue as _close_queue, get_queue
+    redis_reconnect_task: asyncio.Task | None = None
     try:
-        from backend.library.queue import init_queue, close_queue as _close_queue
         await init_queue(settings.REDIS_URL)
         log_event("redis_connected", url=settings.REDIS_URL)
     except Exception as exc:
-        logging.warning("redis queue init failed (Library feature disabled): %s", exc)
+        logging.error(
+            "redis queue init failed — Library research will fail until redis is reachable "
+            "at %s (%s). Background reconnect loop started.",
+            settings.REDIS_URL, exc,
+        )
+
+        async def _redis_reconnect_loop() -> None:
+            delay = 2.0
+            while True:
+                try:
+                    await asyncio.sleep(delay)
+                    get_queue()  # already connected? nothing to do
+                    return
+                except RuntimeError:
+                    pass
+                try:
+                    await init_queue(settings.REDIS_URL)
+                    log_event("redis_connected", url=settings.REDIS_URL, reconnected=True)
+                    logging.info("redis queue reconnected at %s", settings.REDIS_URL)
+                    return
+                except Exception as exc2:
+                    logging.warning("redis queue reconnect attempt failed: %s", exc2)
+                    delay = min(delay * 1.5, 30.0)
+
+        redis_reconnect_task = asyncio.create_task(_redis_reconnect_loop())
     # Warm model as soon as Ollama is up (first chat request avoids cold load)
     try:
         await ensure_single_model_loaded(settings.OLLAMA_MODEL)
@@ -175,7 +203,11 @@ async def lifespan(app: FastAPI):
     yield
     keepalive_task.cancel()
     cleanup_task.cancel()
-    for task in (keepalive_task, cleanup_task):
+    if redis_reconnect_task is not None:
+        redis_reconnect_task.cancel()
+    for task in (keepalive_task, cleanup_task, redis_reconnect_task):
+        if task is None:
+            continue
         try:
             await task
         except asyncio.CancelledError:

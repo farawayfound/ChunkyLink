@@ -96,6 +96,42 @@ else
   echo "WARNING: no pip at ${VENV}/bin/pip — skipping Python deps."
 fi
 
+# ── Redis (required for the Library/research queue) ─────────────────────────
+echo "==> ensuring redis-server is installed and running"
+if ! command -v redis-server &>/dev/null; then
+  if command -v apt-get &>/dev/null; then
+    DEBIAN_FRONTEND=noninteractive apt-get update -q
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q redis-server
+  elif command -v dnf &>/dev/null; then
+    dnf install -y redis
+  elif command -v yum &>/dev/null; then
+    yum install -y redis
+  else
+    echo "WARNING: no supported package manager found to install redis — install it manually."
+  fi
+fi
+if command -v systemctl &>/dev/null; then
+  # Debian/Ubuntu names it redis-server; RHEL/Fedora uses redis
+  for unit in redis-server redis; do
+    if systemctl list-unit-files 2>/dev/null | awk '{print $1}' | grep -qx "${unit}.service"; then
+      systemctl enable --now "${unit}" || true
+      if systemctl is-active --quiet "${unit}"; then
+        echo "    ${unit} is active"
+      else
+        echo "WARNING: ${unit} is not active — 'systemctl status ${unit}' for details"
+      fi
+      break
+    fi
+  done
+fi
+if command -v redis-cli &>/dev/null; then
+  if redis-cli ping 2>/dev/null | grep -q PONG; then
+    echo "    redis PING → PONG"
+  else
+    echo "WARNING: redis-cli ping did not return PONG — Library research submit will fail until redis is reachable"
+  fi
+fi
+
 if [[ "${DEPLOY_SKIP_NPM:-0}" != "1" && -f "${REPO}/frontend/package.json" ]]; then
   NVM_SH=""
   if [[ -n "${SUDO_USER:-}" && -f "/home/${SUDO_USER}/.nvm/nvm.sh" ]]; then
