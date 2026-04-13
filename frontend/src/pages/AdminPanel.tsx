@@ -29,10 +29,12 @@ import {
   getPerfEntry,
   getAdminConfig,
   updateAdminConfig,
+  getAdminLibraryTasks,
+  cancelAdminLibraryTask,
 } from "../api/client";
 import type { InviteCode } from "../types";
 
-type Tab = "overview" | "codes" | "users" | "activity" | "ollama" | "demokb" | "perf" | "configuration";
+type Tab = "overview" | "codes" | "users" | "activity" | "ollama" | "demokb" | "perf" | "configuration" | "library";
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: "Overview",
@@ -43,6 +45,7 @@ const TAB_LABELS: Record<Tab, string> = {
   demokb: "AMA KB",
   perf: "Performance",
   configuration: "Configuration",
+  library: "Library",
 };
 
 export function AdminPanel() {
@@ -71,6 +74,7 @@ export function AdminPanel() {
         {tab === "demokb" && <DemoKBTab />}
         {tab === "perf" && <PerformanceTab />}
         {tab === "configuration" && <ConfigurationTab />}
+        {tab === "library" && <LibraryTab />}
       </div>
     </div>
   );
@@ -239,6 +243,103 @@ function CodesTab() {
               </td>
             </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LibraryTab() {
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setError(null);
+    getAdminLibraryTasks({ limit: 100 })
+      .then((d) => setTasks(d.tasks || []))
+      .catch((e) => setError(e?.message || "Failed to load library tasks"));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const canCancel = (status: string) =>
+    !["approved", "rejected", "cancelled"].includes(status);
+
+  const truncate = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n - 1)}…`);
+
+  const userLabel = (t: any) => {
+    const u = t.user;
+    if (u?.display_name) return u.display_name;
+    if (u?.github_username) return `@${u.github_username}`;
+    return t.user_id ? `${t.user_id.slice(0, 8)}…` : "—";
+  };
+
+  const handleCancel = async (id: string) => {
+    if (!canCancel(tasks.find((x) => x.id === id)?.status ?? "")) return;
+    setCancellingId(id);
+    setError(null);
+    try {
+      await cancelAdminLibraryTask(id);
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "Cancel failed");
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginBottom: "1rem" }}>
+        <button type="button" className="btn btn-sm" onClick={load}>
+          Refresh
+        </button>
+        {error && <span style={{ color: "var(--danger)", fontSize: "0.9rem" }}>{error}</span>}
+      </div>
+      <table className="admin-table">
+        <thead>
+          <tr>
+            <th>Created</th>
+            <th>User</th>
+            <th>Status</th>
+            <th>Prompt</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tasks.length === 0 ? (
+            <tr>
+              <td colSpan={5} style={{ textAlign: "center", color: "var(--text-muted)" }}>
+                No research tasks yet
+              </td>
+            </tr>
+          ) : (
+            tasks.map((t) => (
+              <tr key={t.id}>
+                <td style={{ whiteSpace: "nowrap" }}>{new Date(t.created_at).toLocaleString()}</td>
+                <td title={t.user_id}>{userLabel(t)}</td>
+                <td><span className="monospace" style={{ fontSize: "0.85rem" }}>{t.status}</span></td>
+                <td className="truncate" title={t.prompt}>{truncate(t.prompt || "", 80)}</td>
+                <td>
+                  {canCancel(t.status) ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      disabled={cancellingId === t.id}
+                      onClick={() => handleCancel(t.id)}
+                    >
+                      {cancellingId === t.id ? "…" : "Cancel"}
+                    </button>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>

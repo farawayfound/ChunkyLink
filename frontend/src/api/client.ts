@@ -266,6 +266,17 @@ export const getAdminConfig = () => request<any>("/admin/config");
 export const updateAdminConfig = (body: Record<string, unknown>) =>
   request<any>("/admin/config", { method: "PUT", body: JSON.stringify(body) });
 
+export const getAdminLibraryTasks = (params?: { limit?: number; offset?: number }) => {
+  const sp = new URLSearchParams();
+  if (params?.limit != null) sp.set("limit", String(params.limit));
+  if (params?.offset != null) sp.set("offset", String(params.offset));
+  const qs = sp.toString();
+  return request<any>(`/admin/library/tasks${qs ? `?${qs}` : ""}`);
+};
+
+export const cancelAdminLibraryTask = (id: string) =>
+  request<any>(`/admin/library/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+
 // Library — distributed research
 export const submitResearch = (prompt: string, options?: Record<string, unknown>) =>
   request<any>("/library/research", {

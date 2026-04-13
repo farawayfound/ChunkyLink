@@ -9,7 +9,7 @@ from pathlib import Path
 
 from backend.config import get_settings
 from backend.database import get_db
-from backend.library.models import ResearchJob, TaskStatus, new_job_id
+from backend.library.models import ResearchJob, StatusUpdate, TaskStatus, new_job_id
 from backend.library.queue import get_queue
 from backend.storage import get_user_upload_dir, get_user_index_dir
 
@@ -104,6 +104,57 @@ async def get_task(user_id: str, task_id: str) -> dict | None:
         await db.close()
 
 
+async def get_task_by_id(task_id: str) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM library_tasks WHERE id = ?", (task_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def list_all_tasks(limit: int = 50, offset: int = 0) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """
+            SELECT t.id, t.user_id, t.prompt, t.status, t.created_at, t.updated_at,
+                   t.completed_at, t.sources_found, t.artifact_path, t.error,
+                   u.display_name AS user_display_name,
+                   u.github_username AS user_github_username
+            FROM library_tasks t
+            LEFT JOIN users u ON t.user_id = u.id
+            ORDER BY t.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        )
+        rows = await cursor.fetchall()
+        out: list[dict] = []
+        for r in rows:
+            d = dict(r)
+            out.append({
+                "id": d["id"],
+                "user_id": d["user_id"],
+                "prompt": d["prompt"],
+                "status": d["status"],
+                "created_at": d["created_at"],
+                "updated_at": d["updated_at"],
+                "completed_at": d["completed_at"],
+                "sources_found": d["sources_found"],
+                "artifact_path": d["artifact_path"],
+                "error": d["error"],
+                "user": {
+                    "display_name": d.get("user_display_name"),
+                    "github_username": d.get("user_github_username"),
+                },
+            })
+        return out
+    finally:
+        await db.close()
+
+
 async def get_task_artifact(user_id: str, task_id: str) -> str | None:
     """Return the Markdown content of a completed research artifact."""
     task = await get_task(user_id, task_id)
@@ -135,6 +186,9 @@ async def receive_result(
         task = dict(row)
     finally:
         await db.close()
+
+    if task["status"] == TaskStatus.CANCELLED:
+        raise ValueError("job was cancelled; refusing ingest")
 
     user_id = task["user_id"]
     artifacts = _artifacts_dir(user_id)
@@ -263,13 +317,12 @@ async def reject_task(user_id: str, task_id: str) -> dict:
     return {"status": "rejected"}
 
 
-async def cancel_task(user_id: str, task_id: str) -> dict:
-    task = await get_task(user_id, task_id)
-    if not task:
-        raise ValueError("task not found")
+def _ensure_cancellable(task: dict) -> None:
     if task["status"] in (TaskStatus.APPROVED, TaskStatus.REJECTED):
         raise ValueError("cannot cancel a finalised task")
 
+
+async def _mark_task_cancelled(task_id: str) -> None:
     now = _now_iso()
     db = await get_db()
     try:
@@ -281,7 +334,36 @@ async def cancel_task(user_id: str, task_id: str) -> dict:
     finally:
         await db.close()
 
+
+async def _publish_cancel_status(task_id: str) -> None:
+    try:
+        queue = get_queue()
+        await queue.publish_status(
+            StatusUpdate(job_id=task_id, status=TaskStatus.CANCELLED, message="Cancelled"),
+        )
+    except RuntimeError:
+        pass
+
+
+async def cancel_task(user_id: str, task_id: str) -> dict:
+    task = await get_task(user_id, task_id)
+    if not task:
+        raise ValueError("task not found")
+    _ensure_cancellable(task)
+    await _mark_task_cancelled(task_id)
+    await _publish_cancel_status(task_id)
     log.info("cancelled task %s", task_id)
+    return {"status": "cancelled"}
+
+
+async def cancel_task_by_id(task_id: str) -> dict:
+    task = await get_task_by_id(task_id)
+    if not task:
+        raise ValueError("task not found")
+    _ensure_cancellable(task)
+    await _mark_task_cancelled(task_id)
+    await _publish_cancel_status(task_id)
+    log.info("cancelled task %s (by id)", task_id)
     return {"status": "cancelled"}
 
 

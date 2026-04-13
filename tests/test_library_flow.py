@@ -18,6 +18,9 @@ class _FakeQueue:
         self.enqueued.append(job)
         return "0-test"
 
+    async def publish_status(self, update) -> None:
+        pass
+
 
 @pytest.fixture
 def library_env(tmp_path, monkeypatch):
@@ -139,6 +142,58 @@ async def test_approve_writes_upload_and_marks_approved(library_env):
 
     task = await library_service.get_task("u-test", job_id)
     assert task["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_cancel_task_by_id_marks_cancelled(library_env):
+    res = await library_service.submit_research(
+        user_id="u-test",
+        prompt="Topic for admin cancel test.",
+    )
+    job_id = res["job_id"]
+    out = await library_service.cancel_task_by_id(job_id)
+    assert out["status"] == TaskStatus.CANCELLED
+
+    task = await library_service.get_task_by_id(job_id)
+    assert task is not None
+    assert task["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_receive_result_fails_after_cancel(library_env):
+    res = await library_service.submit_research(
+        user_id="u-test",
+        prompt="Topic where worker returns after cancel.",
+    )
+    job_id = res["job_id"]
+    await library_service.cancel_task_by_id(job_id)
+
+    md = (
+        "# Late report\n\n"
+        "This synthesized markdown meets the minimum word count and structure "
+        "for the quality gate used in library approval.\n\n"
+        "## Sources\n\n- https://example.com\n"
+    )
+    with pytest.raises(ValueError, match="cancelled"):
+        await library_service.receive_result(
+            job_id,
+            md,
+            [{"url": "https://example.com", "title": "Example"}],
+        )
+
+
+@pytest.mark.asyncio
+async def test_list_all_tasks_includes_user(library_env):
+    res = await library_service.submit_research(
+        user_id="u-test",
+        prompt="Topic for list_all_tasks.",
+    )
+    job_id = res["job_id"]
+    rows = await library_service.list_all_tasks(limit=10, offset=0)
+    assert len(rows) == 1
+    assert rows[0]["id"] == job_id
+    assert rows[0]["user"]["display_name"] == "Tester"
+    assert rows[0]["prompt"] == "Topic for list_all_tasks."
 
 
 @pytest.mark.asyncio

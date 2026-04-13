@@ -18,6 +18,9 @@ from backend.services.email import send_invite_email
 
 router = APIRouter()
 
+# Invite codes issued from "Request Access" allow this many successful logins per code.
+REQUEST_ACCESS_MAX_USES = 5
+
 
 @router.get("/github/login")
 async def github_login(request: Request):
@@ -140,11 +143,11 @@ async def request_access(request: Request):
                 status_code=429,
             )
 
-        # Create a single-use invite code that expires in 48 hours
+        # Invite code: up to 5 redemptions, expires in 48 hours
         expires = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
         code = await create_invite(
             db, created_by="system:request-access", label=f"Requested by {email}",
-            max_uses=1, expires_at=expires,
+            max_uses=REQUEST_ACCESS_MAX_USES, expires_at=expires,
         )
 
         # Record the request (logs the email for tracking)
@@ -155,7 +158,7 @@ async def request_access(request: Request):
         await db.commit()
 
         # Email the code — never return it directly
-        sent = await send_invite_email(email, code)
+        sent = await send_invite_email(email, code, max_uses=REQUEST_ACCESS_MAX_USES)
         status = "sent" if sent else "email_failed"
         await db.execute(
             "UPDATE access_requests SET status = ? WHERE invite_code = ?",

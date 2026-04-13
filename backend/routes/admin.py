@@ -20,6 +20,7 @@ from backend.chat.ollama_client import (
 from backend.config import get_settings
 from backend.storage import get_demo_upload_dir, get_demo_index_dir
 from backend.logger import log_event
+from backend.library import service as library_service
 
 router = APIRouter()
 
@@ -178,6 +179,36 @@ async def admin_users(request: Request, user: dict = Depends(require_admin)):
         return {"users": [dict(r) for r in rows]}
     finally:
         await db.close()
+
+
+@router.get("/library/tasks")
+async def admin_list_library_tasks(
+    request: Request,
+    user: dict = Depends(require_admin),
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List all users' library research tasks (admin)."""
+    tasks = await library_service.list_all_tasks(limit=limit, offset=offset)
+    return {"tasks": tasks, "count": len(tasks)}
+
+
+@router.post("/library/tasks/{task_id}/cancel")
+async def admin_cancel_library_task(
+    task_id: str,
+    request: Request,
+    user: dict = Depends(require_admin),
+):
+    """Cancel a research task for any user."""
+    try:
+        result = await library_service.cancel_task_by_id(task_id)
+    except ValueError as e:
+        msg = str(e)
+        if msg == "task not found":
+            raise HTTPException(404, msg) from e
+        raise HTTPException(400, msg) from e
+    log_event("admin_library_cancel", user_id=user["user_id"], task_id=task_id)
+    return result
 
 
 @router.get("/invite-codes")

@@ -8,7 +8,15 @@ import aiosmtplib
 from backend.config import get_settings
 
 
-async def send_invite_email(to_email: str, invite_code: str) -> bool:
+def _invite_use_note(max_uses: int) -> str:
+    if max_uses == 1:
+        return "This code is single-use and expires in 48 hours."
+    if max_uses > 1:
+        return f"This code can be used up to {max_uses} times and expires in 48 hours."
+    return "This code expires in 48 hours."
+
+
+async def send_invite_email(to_email: str, invite_code: str, *, max_uses: int = 1) -> bool:
     """Send an invite code to the given email address. Returns True on success."""
     settings = get_settings()
 
@@ -16,6 +24,7 @@ async def send_invite_email(to_email: str, invite_code: str) -> bool:
         logging.warning("email: SMTP not configured — skipping send to %s", to_email)
         return False
 
+    use_note = _invite_use_note(max_uses)
     msg = EmailMessage()
     msg["Subject"] = "Your ChunkyPotato Access Code"
     msg["From"] = settings.SMTP_FROM or settings.SMTP_USER
@@ -25,7 +34,7 @@ async def send_invite_email(to_email: str, invite_code: str) -> bool:
         f"Here is your access code for ChunkyPotato:\n\n"
         f"    {invite_code}\n\n"
         f"Enter this code on the login page to get started.\n\n"
-        f"This code is single-use and expires in 48 hours.\n\n"
+        f"{use_note}\n\n"
         f"— ChunkyPotato"
     )
     msg.add_alternative(
@@ -37,7 +46,7 @@ async def send_invite_email(to_email: str, invite_code: str) -> bool:
                 <code style="font-size: 28px; letter-spacing: 4px; color: #e4e6ed; font-family: 'JetBrains Mono', monospace;">{invite_code}</code>
             </div>
             <p style="color: #8b8fa3;">Enter this code on the login page to get started.</p>
-            <p style="color: #8b8fa3; font-size: 13px;">This code is single-use and expires in 48 hours.</p>
+            <p style="color: #8b8fa3; font-size: 13px;">{use_note}</p>
         </div>
         </body></html>""",
         subtype="html",
@@ -78,7 +87,7 @@ async def send_index_complete_email(
     if failed:
         msg["Subject"] = "ChunkyPotato — index build failed"
     else:
-        msg["Subject"] = "ChunkyPotato has finished baking their index"
+        msg["Subject"] = "ChunkyPotato has finished baking your index"
     msg["From"] = settings.SMTP_FROM or settings.SMTP_USER
     msg["To"] = to_email
 
@@ -116,7 +125,7 @@ async def send_index_complete_email(
         body_html = f"""<html><body style="font-family: -apple-system, sans-serif; color: #e4e6ed; background: #0f1117; padding: 40px;">
         <div style="max-width: 480px; margin: 0 auto; background: #1a1d27; border: 1px solid #2a2e3d; border-radius: 12px; padding: 40px;">
             <h2 style="color: #6366f1; margin-top: 0;">Your index is ready</h2>
-            <p style="color: #8b8fa3;">ChunkyPotato has finished baking their index.</p>
+            <p style="color: #8b8fa3;">ChunkyPotato has finished baking your index.</p>
             <div style="background: #0f1117; border: 1px solid #2a2e3d; border-radius: 8px; padding: 20px; margin: 24px 0; color: #e4e6ed;">
                 <p style="margin: 4px 0;"><strong>Documents indexed:</strong> {doc_count}</p>
                 <p style="margin: 4px 0;"><strong>Chunks created:</strong> {chunk_count}</p>

@@ -227,11 +227,11 @@ def create_app() -> FastAPI:
         app.mount("/assets", StaticFiles(directory=str(dist / "assets")), name="assets")
 
         def serve_index() -> FileResponse:
-            # Avoid stale SPA shell after deploys (hashed asset names change).
             return FileResponse(
                 str(dist / "index.html"),
                 headers={
                     "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "CDN-Cache-Control": "no-store",
                     "Pragma": "no-cache",
                     "Expires": "0",
                 },
