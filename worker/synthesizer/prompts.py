@@ -93,9 +93,9 @@ SYNTHESIS_USER_TEMPLATE = """\
 {prompt}
 
 # Target Length
-Aim for approximately {target_tokens} tokens (~{target_words} words) of output.
-A variance of about 10% either way is acceptable; do not pad or truncate
-artificially to hit the number exactly.
+Write approximately {target_words} words of substantive content (excluding the
+"## Sources" section). A ~10% variance is fine — do not pad or cut off early
+to hit the number exactly.
 
 # Sources
 {sources_block}
@@ -129,10 +129,10 @@ def build_synthesis_prompt(
         blocks.append(f"### [Source {i}] {title}\nURL: {url}\n\n{content}")
 
     sources_block = "\n\n".join(blocks)
-    target_words = max(1, int(round(target_tokens * 0.75)))
+    # 1 BPE token ≈ 4 chars; average English word ≈ 5 chars → ~0.8 words/token.
+    target_words = max(1, int(round(target_tokens * 0.8)))
     return SYNTHESIS_USER_TEMPLATE.format(
         prompt=prompt,
         sources_block=sources_block,
-        target_tokens=target_tokens,
         target_words=target_words,
     )
