@@ -150,7 +150,7 @@ if [[ "${DEPLOY_SKIP_NPM:-0}" != "1" && -f "${REPO}/frontend/package.json" ]]; t
     echo "==> frontend npm ci && npm run build (via ${NVM_SH})"
     NVM_DIR="$(dirname "${NVM_SH}")"
     export NVM_DIR
-    bash -c ". \"${NVM_SH}\" && cd \"${REPO}/frontend\" && npm ci && npm run build"
+    bash -c ". \"${NVM_SH}\" && cd \"${REPO}/frontend\" && npm install && npm run build"
   else
     echo "WARNING: Node not found (install nvm under your admin user, e.g. ~/.nvm, or set DEPLOY_SKIP_NPM=1 and build dist elsewhere)."
   fi
