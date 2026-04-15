@@ -466,6 +466,7 @@ async def admin_ollama(request: Request, user: dict = Depends(require_admin)):
         "models": models,
         "loaded_models": loaded,
         "loaded_names": loaded_names,
+        "num_ctx": settings.OLLAMA_NUM_CTX,
         "context_window": context_window,
         "inference_stats": get_inference_stats(),
         "readiness": get_readiness_metrics(),

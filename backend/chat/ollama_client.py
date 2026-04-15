@@ -50,11 +50,14 @@ async def init_ollama_http() -> None:
     global _http_client
     if _http_client is not None:
         return
+    # Self-hosted Ollama is reached on localhost/LAN. httpx defaults to trust_env=True,
+    # which applies HTTP(S)_PROXY and often breaks private IPs (e.g. nanobot from Mac).
     _http_client = httpx.AsyncClient(
         timeout=_default_stream_timeout(),
         limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+        trust_env=False,
     )
-    logging.info("ollama_client: shared HTTP client initialized")
+    logging.info("ollama_client: shared HTTP client initialized (trust_env=False)")
 
 
 async def close_ollama_http() -> None:
@@ -68,6 +71,7 @@ async def close_ollama_http() -> None:
 
 def _ephemeral_client(**kwargs) -> httpx.AsyncClient:
     """Short-lived client when shared client is unavailable (e.g. unit tests)."""
+    kwargs.setdefault("trust_env", False)
     return httpx.AsyncClient(**kwargs)
 
 
@@ -211,7 +215,7 @@ async def pull_model_at_base(base_url: str, name: str) -> AsyncIterator[dict]:
     url = f"{root}/api/pull"
     client = _http_client
     if client is None:
-        async with httpx.AsyncClient(timeout=_default_stream_timeout()) as c:
+        async with _ephemeral_client(timeout=_default_stream_timeout()) as c:
             async with c.stream("POST", url, json={"name": name}) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
@@ -310,7 +314,7 @@ async def preload_model_at_base(base_url: str, name: str, num_ctx: int) -> bool:
                 timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0),
             )
         else:
-            async with httpx.AsyncClient(
+            async with _ephemeral_client(
                 timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
             ) as c:
                 resp = await c.post(url, json=payload)
@@ -578,7 +582,7 @@ async def generate_stream(
         async for item in _run_stream(_http_client):
             yield item
     else:
-        async with httpx.AsyncClient(timeout=stream_timeout) as c:
+        async with _ephemeral_client(timeout=stream_timeout) as c:
             async for item in _run_stream(c):
                 yield item
 
@@ -678,6 +682,6 @@ async def chat_stream(
         async for item in _run_chat_stream(_http_client):
             yield item
     else:
-        async with httpx.AsyncClient(timeout=stream_timeout) as c:
+        async with _ephemeral_client(timeout=stream_timeout) as c:
             async for item in _run_chat_stream(c):
                 yield item

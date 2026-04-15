@@ -606,6 +606,17 @@ function ActivityTab() {
   );
 }
 
+/** Presets for macmini (backend) Ollama context window — saved via admin config. */
+const CTX_PRESETS = [
+  { label: "2k", value: 2048 },
+  { label: "4k", value: 4096 },
+  { label: "8k", value: 8192 },
+  { label: "16k", value: 16384 },
+  { label: "32k", value: 32768 },
+  { label: "64k", value: 65536 },
+  { label: "128k", value: 131072 },
+];
+
 function OllamaTab() {
   const [data, setData] = useState<any>(null);
   const [pullName, setPullName] = useState("");
@@ -627,6 +638,14 @@ function OllamaTab() {
   const pollRefWorker = useRef<ReturnType<typeof setInterval> | null>(null);
   /** When true, do not overwrite URL/num_ctx drafts from polling GET /admin/ollama (avoids wiping in-progress edits). */
   const workerConnDirty = useRef(false);
+  /** When true, do not overwrite macmini num_ctx draft from polling refreshes. */
+  const macCtxDirty = useRef(false);
+
+  const [numCtx, setNumCtx] = useState(4096);
+  const [numCtxInput, setNumCtxInput] = useState("4096");
+  const [savingMacCtx, setSavingMacCtx] = useState(false);
+  const [reloadingMacCtx, setReloadingMacCtx] = useState(false);
+  const [macCtxFlash, setMacCtxFlash] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const d = await getAdminOllama().catch(() => null);
@@ -649,6 +668,15 @@ function OllamaTab() {
     const w = data.worker;
     setWorkerBaseDraft((w.base_url as string) || "");
     setWorkerNumCtxDraft(String(w.num_ctx ?? ""));
+  }, [data]);
+
+  useEffect(() => {
+    if (!data) return;
+    if (macCtxDirty.current) return;
+    const b = data.backend ?? data;
+    const n = typeof b.num_ctx === "number" ? b.num_ctx : 4096;
+    setNumCtx(n);
+    setNumCtxInput(String(n));
   }, [data]);
 
   const startLoadingPollMac = (name: string) => {
@@ -831,6 +859,35 @@ function OllamaTab() {
     }
   };
 
+  const handleSaveMacCtx = async () => {
+    const val = parseInt(numCtxInput, 10);
+    if (isNaN(val) || val < 512) {
+      setError("Context window must be at least 512 tokens.");
+      return;
+    }
+    setError(null);
+    setSavingMacCtx(true);
+    try {
+      const res = await updateAdminConfig({ num_ctx: val });
+      setNumCtx(res.num_ctx);
+      setNumCtxInput(String(res.num_ctx));
+      macCtxDirty.current = false;
+      await load();
+      if (res.reloading) {
+        setReloadingMacCtx(true);
+        setMacCtxFlash(`Context window set to ${res.num_ctx.toLocaleString()} — model is reloading…`);
+        setTimeout(() => setReloadingMacCtx(false), 8000);
+      } else {
+        setMacCtxFlash(`Context window saved: ${res.num_ctx.toLocaleString()} tokens`);
+      }
+      setTimeout(() => setMacCtxFlash(null), 4000);
+    } catch (err: any) {
+      setError(err.message || "Failed to save context window");
+    } finally {
+      setSavingMacCtx(false);
+    }
+  };
+
   if (!data) return <p>Loading...</p>;
 
   const backend = data.backend ?? data;
@@ -874,6 +931,79 @@ function OllamaTab() {
       <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: 0, marginBottom: "1rem" }}>
         Ollama used by this server for Ask Me Anything, Workspace chat, and indexing. Base URL comes from server environment (<code style={{ fontSize: "0.75rem" }}>OLLAMA_BASE_URL</code>).
       </p>
+
+      {macCtxFlash && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "10px 14px",
+            background: "color-mix(in srgb, var(--success) 12%, var(--bg-card))",
+            border: "1px solid color-mix(in srgb, var(--success) 30%, var(--border))",
+            borderRadius: "6px",
+            color: "var(--success)",
+            fontSize: "0.9rem",
+          }}
+        >
+          {macCtxFlash}
+        </div>
+      )}
+
+      <div style={{ marginBottom: "1.5rem", padding: "1.25rem 1.5rem", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "8px" }}>
+        <h4 style={{ margin: "0 0 0.75rem" }}>Context Window</h4>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 1rem" }}>
+          Number of tokens the loaded model keeps in its attention window on this host (macmini). A larger value allows
+          longer conversations but requires more GPU/CPU memory. Saving will unload and reload
+          the model in Ollama to apply the new size. Does not apply to nanobot worker Ollama.
+        </p>
+
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+          {CTX_PRESETS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              className={`btn btn-sm${numCtxInput === String(p.value) ? " btn-primary" : ""}`}
+              style={numCtxInput !== String(p.value) ? { background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" } : {}}
+              onClick={() => {
+                macCtxDirty.current = true;
+                setNumCtxInput(String(p.value));
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            type="number"
+            value={numCtxInput}
+            min={512}
+            step={512}
+            onChange={(e) => {
+              macCtxDirty.current = true;
+              setNumCtxInput(e.target.value);
+            }}
+            style={{ width: 120, padding: "7px 10px", background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "6px" }}
+          />
+          <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>tokens</span>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void handleSaveMacCtx()}
+            disabled={savingMacCtx || numCtxInput === String(numCtx)}
+          >
+            {savingMacCtx ? "Saving…" : "Save & Reload Model"}
+          </button>
+          {reloadingMacCtx && (
+            <span style={{ color: "#f59e0b", fontSize: "0.85rem" }}>Reloading model…</span>
+          )}
+        </div>
+
+        <div style={{ marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+          Configured: <strong>{numCtx.toLocaleString()}</strong> tokens
+          {numCtx >= 1024 ? ` (${Math.round(numCtx / 1024)}k)` : ""}
+        </div>
+      </div>
 
       <div className="stats-grid">
         <div className="stat-card">
@@ -1552,26 +1682,11 @@ function IndexSanitizeSettings(props: {
 
 // ── Configuration Tab ─────────────────────────────────────────────────────────
 
-const CTX_PRESETS = [
-  { label: "2k", value: 2048 },
-  { label: "4k", value: 4096 },
-  { label: "8k", value: 8192 },
-  { label: "16k", value: 16384 },
-  { label: "32k", value: 32768 },
-  { label: "64k", value: 65536 },
-  { label: "128k", value: 131072 },
-];
-
 function ConfigurationTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-
-  // Context window
-  const [numCtx, setNumCtx] = useState(4096);
-  const [numCtxInput, setNumCtxInput] = useState("4096");
-  const [reloading, setReloading] = useState(false);
 
   // System prompt
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -1594,8 +1709,6 @@ function ConfigurationTab() {
     setLoading(true);
     getAdminConfig()
       .then((d) => {
-        setNumCtx(d.num_ctx ?? 4096);
-        setNumCtxInput(String(d.num_ctx ?? 4096));
         setSystemPrompt(d.system_prompt ?? "");
         setSystemPromptDraft(d.system_prompt ?? "");
         setSystemRules(d.system_rules ?? "");
@@ -1618,32 +1731,6 @@ function ConfigurationTab() {
   const flash = (msg: string) => {
     setSuccess(msg);
     setTimeout(() => setSuccess(null), 3000);
-  };
-
-  const handleSaveCtx = async () => {
-    const val = parseInt(numCtxInput, 10);
-    if (isNaN(val) || val < 512) {
-      setError("Context window must be at least 512 tokens.");
-      return;
-    }
-    setError(null);
-    setSaving("ctx");
-    try {
-      const res = await updateAdminConfig({ num_ctx: val });
-      setNumCtx(res.num_ctx);
-      setNumCtxInput(String(res.num_ctx));
-      if (res.reloading) {
-        setReloading(true);
-        flash(`Context window set to ${res.num_ctx.toLocaleString()} — model is reloading…`);
-        setTimeout(() => setReloading(false), 8000);
-      } else {
-        flash(`Context window saved: ${res.num_ctx.toLocaleString()} tokens`);
-      }
-    } catch (e: any) {
-      setError(e.message || "Failed to save context window");
-    } finally {
-      setSaving(null);
-    }
   };
 
   const handleSavePrompt = async () => {
@@ -1833,56 +1920,6 @@ function ConfigurationTab() {
         >
           {saving === "library_limits" ? "Saving…" : "Save Limits"}
         </button>
-      </div>
-
-      {/* ── Context Window ── */}
-      <div style={sectionStyle}>
-        <h4 style={{ margin: "0 0 0.75rem" }}>Context Window</h4>
-        <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: "0 0 1rem" }}>
-          Number of tokens the loaded model keeps in its attention window. A larger value allows
-          longer conversations but requires more GPU/CPU memory. Saving will unload and reload
-          the model in Ollama to apply the new size.
-        </p>
-
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
-          {CTX_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              className={`btn btn-sm${numCtxInput === String(p.value) ? " btn-primary" : ""}`}
-              style={numCtxInput !== String(p.value) ? { background: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)" } : {}}
-              onClick={() => setNumCtxInput(String(p.value))}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-          <input
-            type="number"
-            value={numCtxInput}
-            min={512}
-            step={512}
-            onChange={(e) => setNumCtxInput(e.target.value)}
-            style={{ width: 120, padding: "7px 10px", background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "6px" }}
-          />
-          <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>tokens</span>
-          <button
-            className="btn btn-primary"
-            onClick={handleSaveCtx}
-            disabled={saving === "ctx" || numCtxInput === String(numCtx)}
-          >
-            {saving === "ctx" ? "Saving…" : "Save & Reload Model"}
-          </button>
-          {reloading && (
-            <span style={{ color: "#f59e0b", fontSize: "0.85rem" }}>Reloading model…</span>
-          )}
-        </div>
-
-        <div style={{ marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-          Current: <strong>{numCtx.toLocaleString()}</strong> tokens
-          {numCtx >= 1024 ? ` (${Math.round(numCtx / 1024)}k)` : ""}
-        </div>
       </div>
 
       {/* ── Default System Prompt (Your Documents only) ── */}
