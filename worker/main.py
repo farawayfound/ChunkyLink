@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import signal
 import sys
 
@@ -26,6 +27,23 @@ logging.basicConfig(
 log = logging.getLogger("worker")
 
 _shutdown = asyncio.Event()
+
+
+def _fail_fast_if_docker_redis_points_at_loopback() -> None:
+    """Redis on localhost inside Docker is almost always wrong — avoids a tight restart loop with no obvious log."""
+    if not os.path.isfile("/.dockerenv"):
+        return
+    ru = (config.REDIS_URL or "").lower()
+    if "localhost" not in ru and "127.0.0.1" not in ru:
+        return
+    log.critical(
+        "REDIS_URL uses localhost/127.0.0.1 but this process runs inside Docker. "
+        "That address is the worker container itself, not your Mac — Redis will never connect and Docker will "
+        "restart this container forever. Edit .env.nanobot: set REDIS_URL to the LAN host:port where Redis actually "
+        "runs (same value the ChunkyLink backend can use, reachable from nanobot), e.g. redis://192.168.0.10:6379/0 "
+        "then: sudo docker compose -f docker/docker-compose.nanobot.yml up -d --force-recreate worker"
+    )
+    sys.exit(2)
 
 
 def _handle_signal(*_):
@@ -148,8 +166,17 @@ async def _publish_stats_loop(consumer: QueueConsumer) -> None:
 
 
 async def main() -> None:
+    _fail_fast_if_docker_redis_points_at_loopback()
     consumer = QueueConsumer(config.REDIS_URL, config.WORKER_ID)
-    await consumer.connect()
+    try:
+        await consumer.connect()
+    except Exception:
+        log.critical(
+            "could not connect to Redis at REDIS_URL — fix network/firewall and URL in .env.nanobot "
+            "(from Docker use the Redis host LAN IP, not localhost).",
+            exc_info=True,
+        )
+        raise
     log.info(
         "worker %s listening (Ollama base=%s model=%s num_ctx=%d)",
         config.WORKER_ID,
