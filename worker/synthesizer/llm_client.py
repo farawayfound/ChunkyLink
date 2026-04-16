@@ -34,6 +34,10 @@ async def generate(
         "model": use_model,
         "prompt": prompt,
         "stream": False,
+        # Top-level only — ``think`` inside ``options`` is ignored by Ollama.  Without this,
+        # thinking-capable models (e.g. ``gemma4:26b``) may spend the token budget in
+        # ``thinking`` and return an empty ``response``, which breaks the Library pipeline.
+        "think": False,
         "options": options,
     }
     if system:
@@ -60,6 +64,8 @@ async def generate(
             resp = await client.post(f"{base}/api/generate", json=payload)
             resp.raise_for_status()
             data = resp.json()
+            if data.get("error"):
+                raise RuntimeError(str(data["error"]).strip())
     except Exception as exc:
         # #region agent log
         agent_log(
@@ -71,13 +77,18 @@ async def generate(
         # #endregion
         raise
 
-    text = data.get("response", "")
+    text = data.get("response") or ""
+    think_raw = data.get("thinking") or ""
     # #region agent log
     agent_log(
         hypothesis_id="H3",
         location="llm_client.py:generate:success",
         message="ollama_generate_done",
-        data={"model": use_model, "response_len": len(text or "")},
+        data={
+            "model": use_model,
+            "response_len": len(text),
+            "thinking_len": len(str(think_raw)),
+        },
     )
     # #endregion
     log.info("ollama generate: %d chars, model=%s", len(text), use_model)
