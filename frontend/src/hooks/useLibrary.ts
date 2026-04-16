@@ -162,11 +162,20 @@ export function useLibrary() {
       taskId,
       (data) => {
         setTasks((prev) =>
-          prev.map((t) =>
-            t.id === taskId
-              ? { ...t, status: data.status, sources_found: data.sources_found || t.sources_found }
-              : t,
-          ),
+          prev.map((t) => {
+            if (t.id !== taskId) return t;
+            const sources =
+              typeof data.sources_found === "number"
+                ? data.sources_found
+                : Number(data.sources_found) || t.sources_found;
+            const err =
+              data.status === "failed"
+                ? data.message != null && String(data.message).trim()
+                  ? String(data.message)
+                  : t.error
+                : t.error;
+            return { ...t, status: data.status, sources_found: sources, error: err ?? null };
+          }),
         );
       },
       () => {

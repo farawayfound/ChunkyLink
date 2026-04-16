@@ -138,10 +138,16 @@ async def stream_task_status(task_id: str, user: dict = Depends(require_auth)):
                     data = json.dumps(update.to_dict())
                     yield f"data: {data}\n\n"
 
+                    sync_kwargs: dict = {"sources_found": update.sources_found}
+                    if update.status == "failed":
+                        msg = (update.message or "").strip()
+                        if msg:
+                            sync_kwargs["error"] = msg[:8000]
+
                     await service.sync_task_status(
                         update.job_id,
                         update.status,
-                        sources_found=update.sources_found,
+                        **sync_kwargs,
                     )
 
                     if update.status in ("review", "failed", "cancelled"):

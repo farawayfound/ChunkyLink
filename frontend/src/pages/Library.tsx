@@ -498,6 +498,11 @@ export function Library() {
                   {new Date(t.created_at).toLocaleString()}
                   {t.sources_found > 0 && ` \u00b7 ${t.sources_found} sources`}
                 </span>
+                {t.status === "failed" && t.error && (
+                  <span className="library-task-error-preview" title={t.error}>
+                    {t.error.length > 200 ? `${t.error.slice(0, 200)}…` : t.error}
+                  </span>
+                )}
               </div>
               <div className="library-task-actions">
                 <span
