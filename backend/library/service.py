@@ -540,6 +540,40 @@ async def delete_task(user_id: str, task_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Worker-reported failure (persists error even if no browser SSE is connected)
+# ---------------------------------------------------------------------------
+
+async def record_worker_task_failure(job_id: str, message: str) -> dict:
+    """Set task to failed with error text when the nanobot worker POSTs /worker-failure."""
+    err = ((message or "").strip() or "(no message)")[:8000]
+    now = _now_iso()
+    # Do not overwrite a finished review/import/cancel row if a stale worker POST arrives.
+    terminal_ok = (
+        TaskStatus.QUEUED,
+        TaskStatus.CRAWLING,
+        TaskStatus.SYNTHESIZING,
+        TaskStatus.FAILED,
+    )
+    ph = ",".join("?" * len(terminal_ok))
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            f"UPDATE library_tasks SET status = ?, error = ?, updated_at = ?, completed_at = ? "
+            f"WHERE id = ? AND status IN ({ph})",
+            (TaskStatus.FAILED, err, now, now, job_id, *terminal_ok),
+        )
+        await db.commit()
+        if cur.rowcount == 0:
+            log.warning("record_worker_task_failure: no row updated for job_id=%s", job_id)
+            return {"ok": False, "reason": "not_found"}
+    finally:
+        await db.close()
+
+    log.info("recorded worker failure for job %s (%d chars)", job_id, len(err))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # Update status (used by the status-sync background task)
 # ---------------------------------------------------------------------------
 
@@ -568,9 +602,13 @@ async def sync_task_status(job_id: str, status: str, **extra) -> None:
         await db.close()
 
 
+def _is_failed_status(status: object) -> bool:
+    return str(status or "").strip().lower() == "failed"
+
+
 async def ensure_failed_task_error(task: dict) -> dict:
-    """If status is failed but SQLite has no error text, backfill from Redis (last worker update)."""
-    if task.get("status") != TaskStatus.FAILED:
+    """If status is failed but SQLite has no error text, backfill from Redis status stream."""
+    if not _is_failed_status(task.get("status")):
         return task
     if (task.get("error") or "").strip():
         return task
@@ -579,11 +617,16 @@ async def ensure_failed_task_error(task: dict) -> dict:
     except RuntimeError:
         return task
     try:
-        latest = await q.get_latest_status(task["id"])
+        getter = getattr(q, "get_last_failed_status", None)
+        latest = await getter(task["id"]) if callable(getter) else None
+        if latest is None:
+            lu = await q.get_latest_status(task["id"])
+            if lu is not None and _is_failed_status(lu.status):
+                latest = lu
     except Exception:
         log.debug("ensure_failed_task_error: redis read failed for %s", task.get("id"), exc_info=True)
         return task
-    if latest is None or latest.status != TaskStatus.FAILED:
+    if latest is None:
         return task
     msg = (latest.message or "").strip()
     if not msg:

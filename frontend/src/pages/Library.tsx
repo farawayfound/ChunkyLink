@@ -246,15 +246,25 @@ export function Library() {
     setView("detail");
     setDetailLoading(true);
     setApproveResult(null);
+    const fromList = tasks.find((t) => t.id === id);
     try {
       const t = await getLibraryTask(id);
-      setDetail(t);
+      if (!t) {
+        setDetail(null);
+        return;
+      }
+      const apiErr = t.error != null && String(t.error).trim();
+      const listErr = fromList?.error != null && String(fromList.error).trim();
+      setDetail({
+        ...t,
+        error: (apiErr ? String(t.error).trim() : null) || (listErr ? String(fromList!.error).trim() : null) || t.error,
+      });
     } catch {
-      setDetail(null);
+      setDetail(fromList ?? null);
     } finally {
       setDetailLoading(false);
     }
-  }, []);
+  }, [tasks]);
 
   const handleImportOne = useCallback(async () => {
     if (!selectedId) return;
@@ -507,7 +517,7 @@ export function Library() {
                       ? t.error.length > 200
                         ? `${t.error.slice(0, 200)}…`
                         : t.error
-                      : "No error detail on file yet — refresh the page, or check the nanobot worker log (journalctl / docker logs)."}
+                      : "No stored message — deploy latest worker (POST /api/library/worker-failure) or check worker logs."}
                   </span>
                 )}
               </div>
@@ -639,6 +649,18 @@ export function Library() {
 
       {detail && (
         <>
+          {detail.status === "failed" && (
+            <div className="library-detail-failure">
+              <h3>Failure</h3>
+              <div className="library-error">
+                {detail.error?.trim()
+                  ? detail.error
+                  : "No failure message was stored. Check that the nanobot worker can POST to the ChunkyLink API " +
+                    "(M1_BASE_URL / NANOBOT_API_KEY), then open this task again or inspect the worker log."}
+              </div>
+            </div>
+          )}
+
           <div className="library-detail-prompt">
             <h3>Research Prompt</h3>
             <p>{detail.prompt}</p>
@@ -665,14 +687,6 @@ export function Library() {
               <div className="library-artifact-content library-artifact-markdown">
                 <LibraryReportMarkdown markdown={detail.artifact} />
               </div>
-            </div>
-          )}
-
-          {(detail.error?.trim() || detail.status === "failed") && (
-            <div className="library-error">
-              {detail.error?.trim()
-                ? `Error: ${detail.error}`
-                : "No error detail on file yet. Refresh the page, or check the nanobot worker logs."}
             </div>
           )}
 

@@ -267,3 +267,26 @@ async def ingest_result(request: Request):
 
     log_event("library_ingest", job_id=job_id, sources=len(sources))
     return result
+
+
+@router.post("/worker-failure")
+async def worker_report_failure(request: Request):
+    """Nanobot worker persists terminal failure (SQLite) so the UI always has error text."""
+    settings = get_settings()
+    api_key = request.headers.get("X-Nanobot-Key", "")
+    if not settings.NANOBOT_API_KEY or api_key != settings.NANOBOT_API_KEY:
+        raise HTTPException(403, "invalid or missing nanobot API key")
+
+    body = await request.json()
+    job_id = (body.get("job_id") or "").strip()
+    message = body.get("message") or body.get("error") or ""
+
+    if not job_id:
+        raise HTTPException(400, "job_id is required")
+
+    result = await service.record_worker_task_failure(job_id, str(message))
+    if not result.get("ok"):
+        raise HTTPException(404, result.get("reason") or "task not found")
+
+    log_event("library_worker_failure", job_id=job_id)
+    return result

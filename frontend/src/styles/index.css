@@ -2119,6 +2119,22 @@ button.chip:hover { border-color: var(--primary); }
   font-size: 14px;
 }
 
+.library-detail-failure {
+  margin-bottom: 1.25rem;
+}
+.library-detail-failure h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  color: var(--danger);
+}
+.library-detail-failure .library-error {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .library-concurrent-notice {
   margin: 0 0 12px 0;
   padding: 10px 12px;

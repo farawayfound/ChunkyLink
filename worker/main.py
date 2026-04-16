@@ -85,8 +85,26 @@ async def _process_job(consumer: QueueConsumer, stream_id: str, job) -> None:
     except Exception as exc:
         log.exception("job %s failed: %s", job_id, exc)
         detail = str(exc).strip() or repr(exc) or type(exc).__name__
+        await _report_failure_to_m1(job_id, detail)
         await consumer.publish_status(job_id, "failed", detail)
         await consumer.ack(stream_id)
+
+
+async def _report_failure_to_m1(job_id: str, detail: str) -> None:
+    """Persist failure on the M1 backend so Library detail always has error text (not only Redis/SSE)."""
+    if not config.NANOBOT_API_KEY:
+        return
+    url = f"{config.M1_BASE_URL}/api/library/worker-failure"
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                url,
+                json={"job_id": job_id, "message": detail},
+                headers={"X-Nanobot-Key": config.NANOBOT_API_KEY},
+            )
+            resp.raise_for_status()
+    except Exception:
+        log.warning("could not POST worker-failure to M1 for job %s", job_id, exc_info=True)
 
 
 async def _deliver_result(job_id: str, result: dict) -> None:

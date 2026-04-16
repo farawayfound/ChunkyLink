@@ -225,6 +225,19 @@ class RedisQueue(QueueBackend):
         fields["sources_found"] = int(fields.get("sources_found", 0))
         return StatusUpdate.from_dict(fields)
 
+    async def get_last_failed_status(self, job_id: str) -> StatusUpdate | None:
+        """Newest stream entry with status=failed (latest overall may still be synthesizing if mis-ordered)."""
+        key = self._status_key(job_id)
+        entries = await self._r.xrevrange(key, max="+", min="-", count=200)
+        for _, fields in entries:
+            if (fields.get("status") or "").strip() != "failed":
+                continue
+            f = dict(fields)
+            f["progress"] = float(f.get("progress", 0))
+            f["sources_found"] = int(f.get("sources_found", 0))
+            return StatusUpdate.from_dict(f)
+        return None
+
     async def subscribe_status(self, job_id: str) -> AsyncIterator[StatusUpdate]:
         """Yield status updates as they appear.  Caller should wrap in a try/finally."""
         key = self._status_key(job_id)
