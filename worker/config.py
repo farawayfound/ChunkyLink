@@ -18,13 +18,14 @@ M1_BASE_URL = _env("M1_BASE_URL", "http://localhost:8000")
 NANOBOT_API_KEY = _env("NANOBOT_API_KEY", "")
 
 # Ollama (runs locally on nanobot)
+# These are *fallback* defaults — the backend Settings (admin_config.json) is
+# the single source of truth.  It pushes model/num_ctx to Redis and the worker
+# syncs before each job (see main._sync_worker_config).  Env-var overrides here
+# only matter when Redis hasn't been seeded yet (first boot / Redis down).
 OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = _env("OLLAMA_MODEL", "gemma4:26b")
 OLLAMA_TIMEOUT = int(_env("OLLAMA_TIMEOUT", "300"))
 OLLAMA_NUM_CTX = int(_env("OLLAMA_NUM_CTX", "131072"))
-# When true, ignore Redis-pushed model overrides and keep nanobot pinned to
-# OLLAMA_MODEL. Useful for production hosts that must not drift back to legacy models.
-PIN_OLLAMA_MODEL = _env("PIN_OLLAMA_MODEL", "false").lower() == "true"
 
 # Crawling
 MAX_SEARCH_RESULTS = int(_env("MAX_SEARCH_RESULTS", "10"))

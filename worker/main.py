@@ -12,7 +12,7 @@ import httpx
 
 import config
 import sysstats
-from queue_consumer import QueueConsumer
+from queue_consumer import QueueConsumer, WORKER_OLLAMA_REDIS_KEY
 
 _STATS_KEY_PREFIX = "worker:stats:"
 _STATS_TTL_SEC = 60
@@ -30,6 +30,26 @@ _shutdown = asyncio.Event()
 def _handle_signal(*_):
     log.info("shutdown signal received")
     _shutdown.set()
+
+
+async def _sync_worker_config(consumer: QueueConsumer) -> None:
+    """Sync model config from Redis (backend Settings is the source of truth).
+
+    Updates ``config.OLLAMA_MODEL`` and ``config.OLLAMA_NUM_CTX`` in-place so
+    every downstream consumer (pipeline, llm_client) picks up the latest value
+    without needing direct Redis access.
+    """
+    try:
+        raw = await consumer.get_key(WORKER_OLLAMA_REDIS_KEY)
+        if not raw:
+            return
+        data = json.loads(raw)
+        if data.get("model"):
+            config.OLLAMA_MODEL = str(data["model"]).strip()
+        if data.get("num_ctx") is not None:
+            config.OLLAMA_NUM_CTX = int(data["num_ctx"])
+    except Exception as exc:
+        log.debug("config sync from redis skipped: %s", exc)
 
 
 async def _process_job(consumer: QueueConsumer, stream_id: str, job) -> None:
@@ -57,7 +77,6 @@ async def _process_job(consumer: QueueConsumer, stream_id: str, job) -> None:
                 consumer.publish_status(job_id, status, msg, progress, sources)
             ),
             cancel_check=cancel_check,
-            redis_consumer=consumer,
         )
 
         if await cancel_check():
@@ -131,7 +150,9 @@ async def _publish_stats_loop(consumer: QueueConsumer) -> None:
 async def main() -> None:
     consumer = QueueConsumer(config.REDIS_URL, config.WORKER_ID)
     await consumer.connect()
-    log.info("worker %s listening for jobs...", config.WORKER_ID)
+    await _sync_worker_config(consumer)
+    log.info("worker %s listening for jobs (model=%s, num_ctx=%s)...",
+             config.WORKER_ID, config.OLLAMA_MODEL, config.OLLAMA_NUM_CTX)
 
     stats_task = asyncio.create_task(_publish_stats_loop(consumer))
 
@@ -141,6 +162,7 @@ async def main() -> None:
             if pair is None:
                 continue
             stream_id, job = pair
+            await _sync_worker_config(consumer)
             await _process_job(consumer, stream_id, job)
     except asyncio.CancelledError:
         pass

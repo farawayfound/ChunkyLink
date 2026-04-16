@@ -2,14 +2,12 @@
 """Full research pipeline: search -> scrape -> synthesize."""
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Awaitable, Callable, Coroutine, Optional
 
 import config
 from crawler.search import run_search
 from crawler.scraper import scrape_urls
-from queue_consumer import WORKER_OLLAMA_REDIS_KEY
 from synthesizer.llm_client import generate, quick_generate
 from synthesizer.prompts import build_synthesis_prompt, system_for_format
 
@@ -27,11 +25,14 @@ async def run_pipeline(
     job,
     status_cb: StatusCallback | None = None,
     cancel_check: CancelCheck = None,
-    redis_consumer: Any | None = None,
 ) -> dict:
     """Execute the full research pipeline and return the artifact.
 
     Returns dict with keys: markdown, sources, summary.
+
+    Model/context config is read from ``config.OLLAMA_MODEL`` /
+    ``config.OLLAMA_NUM_CTX``, which the worker main loop syncs from Redis
+    (backend Settings) before each job.
     """
 
     async def _status(status: str, msg: str, progress: float = 0.0, sources: int = 0):
@@ -51,17 +52,6 @@ async def run_pipeline(
 
     llm_model = config.OLLAMA_MODEL
     llm_num_ctx = config.OLLAMA_NUM_CTX
-    if redis_consumer is not None:
-        try:
-            raw = await redis_consumer.get_key(WORKER_OLLAMA_REDIS_KEY)
-            if raw:
-                data = json.loads(raw)
-                if data.get("model") and not config.PIN_OLLAMA_MODEL:
-                    llm_model = str(data["model"]).strip()
-                if data.get("num_ctx") is not None:
-                    llm_num_ctx = int(data["num_ctx"])
-        except Exception as exc:
-            log.debug("worker ollama redis override skipped: %s", exc)
 
     async def _llm_quick(prompt: str) -> str:
         return await quick_generate(prompt, model=llm_model, num_ctx=llm_num_ctx)
