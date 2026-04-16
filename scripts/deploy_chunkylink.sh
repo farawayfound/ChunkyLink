@@ -42,8 +42,9 @@ if [[ ! -d "${REPO_RAW}" ]]; then
 fi
 
 REPO="$(realpath "${REPO_RAW}")"
-WORKER_MODEL="${DEPLOY_WORKER_OLLAMA_MODEL:-gemma4:26b}"
-WORKER_CTX="${DEPLOY_WORKER_OLLAMA_NUM_CTX:-32000}"
+# Library nanobot worker: fixed model (not configurable via deploy env).
+WORKER_MODEL="gemma4:26b"
+WORKER_CTX="32000"
 
 # Git 2.35+: sudo (root) + repo owned by ${OWNER} requires an explicit safe path.
 if ! command git config --global --get-all safe.directory 2>/dev/null | grep -qxF "${REPO}"; then
@@ -226,9 +227,8 @@ if cfg.exists():
         # stay on legacy e4b/4k they will immediately reload e4b after restart.
         data["ollama_model"] = model
         data["num_ctx"] = ctx
-        data["worker_ollama_model"] = model
-        data["worker_ollama_num_ctx"] = ctx
-        data["worker_ollama_migrated_v2"] = True
+        data["worker_ollama_model"] = "gemma4:26b"
+        data["worker_ollama_num_ctx"] = 32000
         cfg.write_text(json.dumps(data, indent=2), encoding="utf-8")
         print(f"    updated {cfg}")
     except Exception as exc:

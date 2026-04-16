@@ -112,6 +112,7 @@ async def run_pipeline(
         user_prompt,
         system=system_for_format(output_format),
         temperature=0.3,
+        num_predict=8192,
         model=llm_model,
         num_ctx=llm_num_ctx,
     )
@@ -127,6 +128,7 @@ async def run_pipeline(
     summary = await generate(
         f"Summarize in 2-3 sentences:\n\n{markdown[:3000]}",
         temperature=0.2,
+        num_predict=512,
         model=llm_model,
         num_ctx=llm_num_ctx,
     )

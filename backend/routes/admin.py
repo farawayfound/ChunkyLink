@@ -595,34 +595,17 @@ def _worker_ollama_base_or_400() -> str:
 
 @router.put("/ollama/worker/settings")
 async def admin_worker_ollama_settings(request: Request, user: dict = Depends(require_admin)):
-    """Persist nanobot Ollama admin URL, context size, and default model; push model/ctx to Redis."""
+    """Persist nanobot Ollama LAN URL only. Library worker model is fixed (gemma4:26b, 32k)."""
     body = await request.json()
     settings = get_settings()
     changed = False
     if "base_url" in body:
         settings.WORKER_OLLAMA_BASE_URL = _validate_worker_ollama_base_url(body.get("base_url", "") or "")
         changed = True
-    if "num_ctx" in body:
-        n = int(body["num_ctx"])
-        if n < 512:
-            raise HTTPException(400, "num_ctx must be at least 512")
-        settings.WORKER_OLLAMA_NUM_CTX = n
-        changed = True
-    if "model" in body:
-        m = (body.get("model") or "").strip()
-        if not m:
-            raise HTTPException(400, "model must be non-empty when provided")
-        settings.WORKER_OLLAMA_MODEL = m
-        changed = True
+    # ``model`` / ``num_ctx`` in the body are ignored — worker uses static gemma4:26b @ 32k.
     if changed:
         settings.save_admin_config()
         log_event("worker_ollama_settings_changed", user_id=user["user_id"])
-    try:
-        from backend.library.worker_runtime import publish_worker_ollama_from_settings
-
-        await publish_worker_ollama_from_settings()
-    except Exception as exc:
-        logging.warning("worker ollama redis publish after settings: %s", exc)
     # Test connectivity so the UI gets immediate feedback after saving.
     resolved = settings.resolved_worker_ollama_base_url()
     conn_test = await health_check_at_base(resolved) if resolved else {
@@ -633,8 +616,9 @@ async def admin_worker_ollama_settings(request: Request, user: dict = Depends(re
         "base_url": settings.WORKER_OLLAMA_BASE_URL,
         "resolved_base_url": resolved,
         "num_ctx": settings.WORKER_OLLAMA_NUM_CTX,
-        "model": settings.WORKER_OLLAMA_MODEL,olla
+        "model": settings.WORKER_OLLAMA_MODEL,
         "connection_test": conn_test,
+        "note": "Library worker model is fixed to gemma4:26b with num_ctx=32000 (not configurable here).",
     }
 
 
@@ -644,22 +628,13 @@ async def admin_worker_ollama_set_model(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_admin),
 ):
-    """Set the Library worker's default Ollama model and preload it on nanobot."""
+    """Warm the fixed Library worker model (gemma4:26b @ 32k) on nanobot."""
     body = await request.json()
-    name = (body.get("name") or "").strip()
-    if not name:
-        raise HTTPException(400, "Model name is required")
+    _ = body  # optional ``name`` ignored — model is not switchable
     base = _worker_ollama_base_or_400()
     settings = get_settings()
-    settings.WORKER_OLLAMA_MODEL = name
-    settings.save_admin_config()
+    name = settings.WORKER_OLLAMA_MODEL
     log_event("worker_ollama_model_changed", user_id=user["user_id"], model=name)
-    try:
-        from backend.library.worker_runtime import publish_worker_ollama_from_settings
-
-        await publish_worker_ollama_from_settings()
-    except Exception as exc:
-        logging.warning("worker ollama redis publish: %s", exc)
     background_tasks.add_task(
         ensure_single_model_loaded_at_base, base, name, settings.WORKER_OLLAMA_NUM_CTX
     )
@@ -718,15 +693,13 @@ async def admin_worker_ollama_load_model(
         raise HTTPException(400, "Model name is required")
     base = _worker_ollama_base_or_400()
     settings = get_settings()
-    settings.WORKER_OLLAMA_MODEL = name
-    settings.save_admin_config()
+    fixed = settings.WORKER_OLLAMA_MODEL
+    if name != fixed:
+        raise HTTPException(
+            400,
+            f"Library worker only loads {fixed!r}. Use this endpoint without changing models.",
+        )
     log_event("worker_ollama_model_loaded", user_id=user["user_id"], model=name)
-    try:
-        from backend.library.worker_runtime import publish_worker_ollama_from_settings
-
-        await publish_worker_ollama_from_settings()
-    except Exception as exc:
-        logging.warning("worker ollama redis publish: %s", exc)
     background_tasks.add_task(
         ensure_single_model_loaded_at_base, base, name, settings.WORKER_OLLAMA_NUM_CTX
     )

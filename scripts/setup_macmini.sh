@@ -186,15 +186,12 @@ cur = (data.get('ollama_model') or '').strip()
 if cur and (cur.startswith('nemotron') or cur in ('llama3.2','llama3.2:latest')):
     data['ollama_model'] = chat_model
     changed = True
-# Worker model/ctx — always align so backend publishes correct values to Redis
-wm = (data.get('worker_ollama_model') or '').strip()
-wc = data.get('worker_ollama_num_ctx')
-if wm != worker_model or wc != worker_ctx:
-    data['worker_ollama_model'] = worker_model
-    data['worker_ollama_num_ctx'] = worker_ctx
-    data['worker_ollama_migrated_v2'] = True
+# Worker model/ctx — fixed for Library nanobot (not Redis-driven)
+if (data.get('worker_ollama_model') or '').strip() != 'gemma4:26b' or data.get('worker_ollama_num_ctx') != 32000:
+    data['worker_ollama_model'] = 'gemma4:26b'
+    data['worker_ollama_num_ctx'] = 32000
     changed = True
-    print(f'admin_config.json: worker → {worker_model}, num_ctx → {worker_ctx}')
+    print('admin_config.json: worker → gemma4:26b, num_ctx → 32000')
 if changed:
     p.write_text(json.dumps(data, indent=2) + '\n', 'utf-8')
 " "$cfg" "$DEFAULT_MODEL" "$WORKER_MODEL" "$WORKER_CTX"

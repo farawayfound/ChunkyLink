@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 
 _STREAM_JOBS = "library:jobs"
 _STREAM_STATUS_PREFIX = "library:status:"
-WORKER_OLLAMA_REDIS_KEY = "library:worker:ollama"
 _CANCEL_PREFIX = "library:cancel:"
 _CANCEL_TTL_SEC = 83200
 _GROUP = "workers"
@@ -163,11 +162,6 @@ class RedisQueue(QueueBackend):
     async def get_key(self, key: str) -> str | None:
         val = await self._r.get(key)
         return val
-
-    async def publish_worker_ollama_runtime(self, model: str, num_ctx: int) -> None:
-        """Persist worker LLM choice for nanobot consumers (JSON on a plain Redis key)."""
-        payload = json.dumps({"model": str(model).strip(), "num_ctx": int(num_ctx)})
-        await self._r.set(WORKER_OLLAMA_REDIS_KEY, payload)
 
     async def purge_job(self, job_id: str) -> None:
         """Drop stream entries and pending deliveries for this job_id."""

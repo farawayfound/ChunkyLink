@@ -14,7 +14,6 @@ log = logging.getLogger(__name__)
 
 _STREAM_JOBS = "library:jobs"
 _STREAM_STATUS_PREFIX = "library:status:"
-WORKER_OLLAMA_REDIS_KEY = "library:worker:ollama"
 _CANCEL_PREFIX = "library:cancel:"
 _GROUP = "workers"
 
