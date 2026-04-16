@@ -22,6 +22,9 @@ OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = _env("OLLAMA_MODEL", "gemma4:26b")
 OLLAMA_TIMEOUT = int(_env("OLLAMA_TIMEOUT", "300"))
 OLLAMA_NUM_CTX = int(_env("OLLAMA_NUM_CTX", "131072"))
+# When true, ignore Redis-pushed model overrides and keep nanobot pinned to
+# OLLAMA_MODEL. Useful for production hosts that must not drift back to legacy models.
+PIN_OLLAMA_MODEL = _env("PIN_OLLAMA_MODEL", "false").lower() == "true"
 
 # Crawling
 MAX_SEARCH_RESULTS = int(_env("MAX_SEARCH_RESULTS", "10"))

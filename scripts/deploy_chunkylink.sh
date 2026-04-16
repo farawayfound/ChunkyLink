@@ -185,6 +185,7 @@ _upsert_env_kv "${REPO}/.env" "OLLAMA_MODEL" "${WORKER_MODEL}"
 _upsert_env_kv "${REPO}/.env" "OLLAMA_NUM_CTX" "${WORKER_CTX}"
 _upsert_env_kv "${REPO}/.env.nanobot" "OLLAMA_MODEL" "${WORKER_MODEL}"
 _upsert_env_kv "${REPO}/.env.nanobot" "OLLAMA_NUM_CTX" "${WORKER_CTX}"
+_upsert_env_kv "${REPO}/.env.nanobot" "PIN_OLLAMA_MODEL" "true"
 if [[ -f "${REPO}/.env" ]]; then
   echo "    .env model keys:"
   grep -E '^OLLAMA_MODEL=|^OLLAMA_NUM_CTX=|^WORKER_OLLAMA_MODEL=|^WORKER_OLLAMA_NUM_CTX=' "${REPO}/.env" || true

@@ -56,7 +56,7 @@ async def run_pipeline(
             raw = await redis_consumer.get_key(WORKER_OLLAMA_REDIS_KEY)
             if raw:
                 data = json.loads(raw)
-                if data.get("model"):
+                if data.get("model") and not config.PIN_OLLAMA_MODEL:
                     llm_model = str(data["model"]).strip()
                 if data.get("num_ctx") is not None:
                     llm_num_ctx = int(data["num_ctx"])

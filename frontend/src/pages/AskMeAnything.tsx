@@ -363,6 +363,7 @@ export function AskMeAnything() {
                   <ChatMessageView
                     message={t.assistant}
                     suppressThinking={streaming && isLastTurn}
+                    assistantMarkdown
                   />
                 </div>
               );

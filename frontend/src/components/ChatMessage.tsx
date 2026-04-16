@@ -1,13 +1,17 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ComponentPropsWithoutRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage as Msg } from "../types";
 
 interface Props {
   message: Msg;
   /** Hide the collapsible thinking UI (e.g. when thinking is shown in AMA status strip). */
   suppressThinking?: boolean;
+  /** Render assistant message body as Markdown (GFM). User messages stay plain text. */
+  assistantMarkdown?: boolean;
 }
 
-export function ChatMessage({ message, suppressThinking }: Props) {
+export function ChatMessage({ message, suppressThinking, assistantMarkdown }: Props) {
   const isUser = message.role === "user";
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const thinkingRef = useRef<HTMLDivElement>(null);
@@ -52,7 +56,30 @@ export function ChatMessage({ message, suppressThinking }: Props) {
           )}
         </div>
       )}
-      <div className="message-content">{message.content || "\u00A0"}</div>
+      <div
+        className={
+          !isUser && assistantMarkdown
+            ? "message-content library-artifact-markdown"
+            : "message-content"
+        }
+      >
+        {!isUser && assistantMarkdown ? (
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a: ({ href, children, ...rest }: ComponentPropsWithoutRef<"a">) => (
+                <a href={href} {...rest} target="_blank" rel="noopener noreferrer">
+                  {children}
+                </a>
+              ),
+            }}
+          >
+            {message.content || "\u00A0"}
+          </ReactMarkdown>
+        ) : (
+          message.content || "\u00A0"
+        )}
+      </div>
     </div>
   );
 }

@@ -4,11 +4,15 @@ const NUM_SLOTS = 9;
 const STEP_DEG = 360 / NUM_SLOTS;
 const RADIUS_PX = 280;
 const AUTO_DEG_PER_SEC = 14;
+/** Wheel spin scales with auto rate; lower = more damped. */
+const WHEEL_SPIN_DAMP = 0.48;
 const DRAG_DEG_PER_PX = 0.45;
 const HOVER_LERP = 0.07;
 const MAX_HOVER_TILT = 16;
 const READABLE_COS = 0.72;
 const EDGE_COS = 0.12;
+/** Horizontal band from each edge of the wrap that counts as “side” for drag hints. */
+const DRAG_HINT_EDGE_PX = 52;
 
 export type SuggestionCarouselVisualMode = "intro" | "idle" | "pickHero" | "scatterAll";
 
@@ -39,6 +43,14 @@ function wrapRelDeg(raw: number): number {
   return r;
 }
 
+/** Normalize wheel delta to pixel-like units (deltaMode-aware). */
+function wheelDeltaYPixels(e: WheelEvent): number {
+  let y = e.deltaY;
+  if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) y *= 16;
+  else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) y *= 400;
+  return y;
+}
+
 export function SuggestionCarousel({
   pool,
   onPick,
@@ -49,6 +61,7 @@ export function SuggestionCarousel({
   const [texts, setTexts] = useState<string[]>(() =>
     Array.from({ length: NUM_SLOTS }, () => pickFromPool(pool)),
   );
+  const wrapRef = useRef<HTMLDivElement>(null);
   const pivotRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -65,6 +78,9 @@ export function SuggestionCarousel({
   const rafRef = useRef(0);
   const lastTRef = useRef<number | null>(null);
   const edgePrimedRef = useRef(false);
+  const hintsLitRef = useRef(false);
+  const [hintsLit, setHintsLit] = useState(false);
+  const [draggingUI, setDraggingUI] = useState(false);
 
   /** Pause auto-spin + slot refresh (intro / pick / scatter). */
   const freezeSpin = visualMode === "pickHero" || visualMode === "scatterAll" || visualMode === "intro";
@@ -105,6 +121,26 @@ export function SuggestionCarousel({
         spinDegRef.current += dx * DRAG_DEG_PER_PX;
         if (Math.abs(dx) > 0.4) dragMovedRef.current = true;
       }
+
+      const wrap = wrapRef.current;
+      let inEdge = false;
+      if (wrap && !paused && !blockStageDrag && !draggingRef.current) {
+        const wr = wrap.getBoundingClientRect();
+        if (
+          e.clientX >= wr.left &&
+          e.clientX <= wr.right &&
+          e.clientY >= wr.top &&
+          e.clientY <= wr.bottom
+        ) {
+          const edge = Math.min(DRAG_HINT_EDGE_PX, wr.width * 0.11);
+          const lx = e.clientX - wr.left;
+          inEdge = lx < edge || lx > wr.width - edge;
+        }
+      }
+      if (inEdge !== hintsLitRef.current) {
+        hintsLitRef.current = inEdge;
+        setHintsLit(inEdge);
+      }
     };
 
     const onLeave = () => {
@@ -114,6 +150,7 @@ export function SuggestionCarousel({
 
     const onUp = () => {
       draggingRef.current = false;
+      setDraggingUI(false);
     };
 
     window.addEventListener("pointermove", onMove);
@@ -128,7 +165,33 @@ export function SuggestionCarousel({
       window.removeEventListener("pointercancel", onUp);
       stage?.removeEventListener("pointerleave", onLeave);
     };
-  }, []);
+  }, [paused, blockStageDrag]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (paused || blockStageDrag) return;
+      const r = stage.getBoundingClientRect();
+      if (
+        e.clientX < r.left ||
+        e.clientX > r.right ||
+        e.clientY < r.top ||
+        e.clientY > r.bottom
+      ) {
+        return;
+      }
+      e.preventDefault();
+      const dy = wheelDeltaYPixels(e);
+      // Scroll down (dy > 0) → clockwise, same sign as auto-spin.
+      const k = (AUTO_DEG_PER_SEC / 100) * WHEEL_SPIN_DAMP;
+      spinDegRef.current += dy * k;
+    };
+
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, [paused, blockStageDrag]);
 
   useEffect(() => {
     const pivot = pivotRef.current;
@@ -200,6 +263,7 @@ export function SuggestionCarousel({
     draggingRef.current = true;
     dragMovedRef.current = false;
     lastPointerXRef.current = e.clientX;
+    setDraggingUI(true);
     stageRef.current?.setPointerCapture(e.pointerId);
   };
 
@@ -207,6 +271,7 @@ export function SuggestionCarousel({
     e.stopPropagation();
     draggingRef.current = false;
     dragMovedRef.current = false;
+    setDraggingUI(false);
   };
 
   const onCardClick = (slot: number, e: React.MouseEvent<HTMLButtonElement>) => {
@@ -223,20 +288,39 @@ export function SuggestionCarousel({
     (visualMode === "scatterAll" ? " suggestion-carousel-stage--scatter-all" : "") +
     (blockStageDrag ? " suggestion-carousel-stage--block-drag" : "");
 
+  const wrapClass =
+    "suggestion-carousel-wrap" +
+    (hintsLit && !paused && !blockStageDrag && !draggingUI
+      ? " suggestion-carousel-wrap--hints-lit"
+      : "") +
+    (draggingUI ? " suggestion-carousel-wrap--dragging" : "") +
+    (paused || blockStageDrag ? " suggestion-carousel-wrap--hints-muted" : "");
+
   return (
     <div className="suggestion-carousel" aria-label="Suggested questions carousel">
-      <div
-        ref={stageRef}
-        className={stageClass}
-        onPointerEnter={() => {
-          pointerOverStageRef.current = true;
-        }}
-        onPointerLeave={() => {
-          pointerOverStageRef.current = false;
-        }}
-        onPointerDown={onPointerDown}
-        role="presentation"
-      >
+      <div ref={wrapRef} className={wrapClass}>
+        <div className="suggestion-carousel-hints" aria-hidden="true">
+          <span className="suggestion-carousel-hint-bar suggestion-carousel-hint-bar--left" />
+          <span className="suggestion-carousel-hint-bar suggestion-carousel-hint-bar--right" />
+          <span className="suggestion-carousel-hint-chevron suggestion-carousel-hint-chevron--left">
+            {"<"}
+          </span>
+          <span className="suggestion-carousel-hint-chevron suggestion-carousel-hint-chevron--right">
+            {">"}
+          </span>
+        </div>
+        <div
+          ref={stageRef}
+          className={stageClass}
+          onPointerEnter={() => {
+            pointerOverStageRef.current = true;
+          }}
+          onPointerLeave={() => {
+            pointerOverStageRef.current = false;
+          }}
+          onPointerDown={onPointerDown}
+          role="presentation"
+        >
         <div className="suggestion-carousel-pivot-outer">
           <div ref={pivotRef} className="suggestion-carousel-pivot">
             {texts.map((text, i) => {
@@ -295,6 +379,7 @@ export function SuggestionCarousel({
             })}
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
