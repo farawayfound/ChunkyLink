@@ -131,6 +131,9 @@ class Settings:
         self.WORKER_OLLAMA_BASE_URL = os.getenv("WORKER_OLLAMA_BASE_URL", "").strip()
         self.WORKER_OLLAMA_MODEL = os.getenv("WORKER_OLLAMA_MODEL", "gemma4:26b").strip()
         self.WORKER_OLLAMA_NUM_CTX = int(os.getenv("WORKER_OLLAMA_NUM_CTX", "131072"))
+        # Marker persisted to admin_config.json so legacy worker model defaults
+        # are migrated once and never silently re-applied on subsequent restarts.
+        self.WORKER_OLLAMA_MIGRATED_V2 = True
 
         # ── Runtime admin overrides (mutable; persisted to DATA_DIR/admin_config.json) ──
         # These are set/updated via the admin Configuration tab at runtime.
@@ -179,8 +182,41 @@ class Settings:
                 self.WORKER_OLLAMA_MODEL = str(wm).strip()
             if data.get("worker_ollama_num_ctx"):
                 self.WORKER_OLLAMA_NUM_CTX = max(512, int(data["worker_ollama_num_ctx"]))
+            self.WORKER_OLLAMA_MIGRATED_V2 = bool(data.get("worker_ollama_migrated_v2"))
+            if self._migrate_legacy_worker_ollama_defaults(data):
+                # Persist migration immediately so a deploy/restart cannot
+                # republish legacy e4b/8k values back into Redis.
+                path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception:
             pass
+
+    def _migrate_legacy_worker_ollama_defaults(self, data: dict) -> bool:
+        """One-time migration for old worker defaults persisted in admin_config.
+
+        Historical deployments stored ``gemma4:e4b`` + ``8192`` as the worker
+        model/context. New deployments default to ``gemma4:26b`` + ``131072``.
+        If that exact legacy pair is found and no migration marker exists yet,
+        upgrade the values in-memory and in ``data`` so they are written back.
+        """
+        if bool(data.get("worker_ollama_migrated_v2")):
+            self.WORKER_OLLAMA_MIGRATED_V2 = True
+            return False
+        legacy_model = str(data.get("worker_ollama_model") or "").strip()
+        raw_ctx = data.get("worker_ollama_num_ctx")
+        try:
+            legacy_ctx = int(raw_ctx) if raw_ctx is not None else 0
+        except Exception:
+            legacy_ctx = 0
+        is_legacy_pair = legacy_model == "gemma4:e4b" and legacy_ctx == 8192
+        if not is_legacy_pair:
+            return False
+        self.WORKER_OLLAMA_MODEL = "gemma4:26b"
+        self.WORKER_OLLAMA_NUM_CTX = 131072
+        self.WORKER_OLLAMA_MIGRATED_V2 = True
+        data["worker_ollama_model"] = self.WORKER_OLLAMA_MODEL
+        data["worker_ollama_num_ctx"] = self.WORKER_OLLAMA_NUM_CTX
+        data["worker_ollama_migrated_v2"] = True
+        return True
 
     def resolved_worker_ollama_base_url(self) -> str:
         """URL the backend uses to reach nanobot's Ollama (LAN). Admin JSON overrides env."""
@@ -208,6 +244,7 @@ class Settings:
             "worker_ollama_base_url": self.WORKER_OLLAMA_BASE_URL,
             "worker_ollama_model": self.WORKER_OLLAMA_MODEL,
             "worker_ollama_num_ctx": self.WORKER_OLLAMA_NUM_CTX,
+            "worker_ollama_migrated_v2": self.WORKER_OLLAMA_MIGRATED_V2,
         }
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
