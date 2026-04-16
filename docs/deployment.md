@@ -172,7 +172,7 @@ launchctl kickstart -k "gui/$(id -u)/com.chunkylink.backend"
 | Feature | What it needs |
 |---------|----------------|
 | **Workspace** (document chat) | Your **uploaded** docs and **user** index under **`DATA_DIR`**. |
-| **Library** | **Redis** (**`REDIS_URL`**) and the **nanobot** worker; separate from AMA. |
+| **Library** | **Redis** (**`REDIS_URL`**) and the **nanobot** worker; separate from AMA. Split-host (Mac + nanobot) issues: see **[Library / nanobot troubleshooting](library-nanobot-troubleshooting.md)**. |
 | **Ask Me Anything** | The **demo** index only: **`$DATA_DIR/indexes/demo`** (default **`~/chunkylink/data/indexes/demo`**). It does **not** use your Workspace uploads. |
 
 If AMA “does nothing” or always errors, build the demo index once: **Admin → AMA KB (Demo KB) → Build Index**. Confirm Ollama is running (**`brew services list`**, **`ollama list`**) and matches **`OLLAMA_MODEL`** in **`.env`**.

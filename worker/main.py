@@ -170,12 +170,26 @@ async def main() -> None:
     consumer = QueueConsumer(config.REDIS_URL, config.WORKER_ID)
     try:
         await consumer.connect()
-    except Exception:
+    except Exception as exc:
         log.critical(
-            "could not connect to Redis at REDIS_URL — fix network/firewall and URL in .env.nanobot "
-            "(from Docker use the Redis host LAN IP, not localhost).",
+            "could not connect to Redis (REDIS_URL in .env.nanobot) — use the Mac mini LAN IP:port "
+            "where Redis listens, same DB index as the backend.",
             exc_info=True,
         )
+        seen: set[int] = set()
+        err: BaseException | None = exc
+        while err is not None and id(err) not in seen:
+            seen.add(id(err))
+            if isinstance(err, OSError) and getattr(err, "errno", None) == 113:
+                log.critical(
+                    "errno 113 (EHOSTUNREACH): no network route to that host:port. "
+                    "Often: wrong IP (confirm on Mac: ifconfig / Wi‑Fi details), Mac firewall, "
+                    "different VLANs, or Redis on Mac bound only to 127.0.0.1 — Redis must listen on "
+                    "0.0.0.0 (or the LAN interface) for nanobot to connect."
+                )
+                break
+            nxt = getattr(err, "__cause__", None) or getattr(err, "__context__", None)
+            err = nxt if nxt is not err else None
         raise
     log.info(
         "worker %s listening (Ollama base=%s model=%s num_ctx=%d)",
