@@ -58,15 +58,18 @@ fi
 
 eval "$(brew shellenv)" 2>/dev/null || true
 
-# ── 3. Python 3.12 ────────────────────────────────────────────────────────────
-if command -v python3.12 &>/dev/null; then
-    ok "Python 3.12 already installed"
+# ── 3. Python 3.11 ────────────────────────────────────────────────────────────
+# Python 3.12's .app bundle triggers macOS Local Network Privacy restrictions,
+# blocking connections to LAN IPs (e.g. nanobot Ollama).  Python 3.11 is not
+# affected and is the supported runtime for the backend on macOS.
+if command -v python3.11 &>/dev/null; then
+    ok "Python 3.11 already installed"
 else
-    info "Installing Python 3.12 via Homebrew..."
-    brew install python@3.12
-    ok "Python 3.12 installed"
+    info "Installing Python 3.11 via Homebrew..."
+    brew install python@3.11
+    ok "Python 3.11 installed"
 fi
-PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
+PYTHON="$(brew --prefix python@3.11)/bin/python3.11"
 
 # ── 4. Node.js (for frontend build) ──────────────────────────────────────────
 if command -v node &>/dev/null; then
