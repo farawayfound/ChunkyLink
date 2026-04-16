@@ -169,34 +169,41 @@ RULES:
 # This reinforces the format immediately before the model starts generating.
 # ---------------------------------------------------------------------------
 
+_TARGET_LENGTH = "Target length: approximately {words} words. Be thorough — do not stop early."
+
 _FORMAT_CLOSING: dict[str, str] = {
     "default": (
         "Produce a Default-format report: introduction, mixed prose/bullet sections, "
-        "at least one comparison table, and a Key Takeaways section."
+        "at least one comparison table, and a Key Takeaways section. "
+        + _TARGET_LENGTH
     ),
     "essay": (
         "Produce an Essay-format report in pure flowing prose. "
         "ABSOLUTE BAN: no bullet points, no numbered lists, no tables, no colons "
         "that introduce a list. Every body section must be 2–4 full prose paragraphs "
-        "of 3–6 sentences each, connected with academic transitional phrases."
+        "of 3–6 sentences each, connected with academic transitional phrases. "
+        + _TARGET_LENGTH
     ),
     "graphical": (
         "Produce a Graphical-format report: introduction (2–3 sentences), "
         "then a mix of Mermaid diagram blocks (```mermaid ... ```) AND Markdown tables — "
         "aim for 2–3 Mermaid charts plus 1–2 tables, each preceded by a one-sentence caption, "
         "then conclusion (2–3 sentences). "
-        "NO prose paragraphs in the body. ALL substance goes in charts and table cells."
+        "NO prose paragraphs in the body. ALL substance goes in charts and table cells. "
+        + _TARGET_LENGTH
     ),
     "contrast": (
         "Produce a Contrast-format report: focus exclusively on differences and "
         "disagreements. One ## section per disagreement, a comparison table, "
-        "and a brief interpretation. Do NOT describe agreements."
+        "and a brief interpretation. Do NOT describe agreements. "
+        + _TARGET_LENGTH
     ),
     "correlate": (
         "Produce a Correlate-format report: focus exclusively on shared findings "
         "and converging evidence. Common Findings bullets (multi-source only), "
         "a Converging Evidence table with confidence ratings, "
-        "and a Consensus Picture paragraph."
+        "and a Consensus Picture paragraph. "
+        + _TARGET_LENGTH
     ),
 }
 
@@ -219,19 +226,21 @@ def build_synthesis_prompt(
     prompt: str,
     sources: list[dict],
     output_format: str = "default",
+    num_predict: int = 8192,
 ) -> str:
     """Build the user message for synthesis from scraped source data."""
+    target_words = round(num_predict / 3)
     blocks: list[str] = []
     for i, src in enumerate(sources, 1):
         title = src.get("title", "Untitled")
         url = src.get("url", "")
         content = src.get("content", "")
-        if len(content) > 6000:
-            content = content[:6000] + "\n[...truncated]"
+        if len(content) > 3800:
+            content = content[:3800] + "\n[...truncated]"
         blocks.append(f"### [Source {i}] {title}\nURL: {url}\n\n{content}")
 
     sources_block = "\n\n".join(blocks)
-    closing = _FORMAT_CLOSING.get(output_format, _FORMAT_CLOSING["default"])
+    closing = _FORMAT_CLOSING.get(output_format, _FORMAT_CLOSING["default"]).format(words=target_words)
 
     return (
         f"# Research Topic\n{prompt}\n\n"

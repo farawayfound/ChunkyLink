@@ -21,7 +21,7 @@ NANOBOT_API_KEY = _env("NANOBOT_API_KEY", "")
 # Defaults match production; set OLLAMA_MODEL / OLLAMA_NUM_CTX to match `ollama list` (wrong tag => HTTP 404 on /api/generate).
 OLLAMA_BASE_URL = _env("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = _env("OLLAMA_MODEL", "gemma4:26b").strip() or "gemma4:26b"
-OLLAMA_TIMEOUT = int(_env("OLLAMA_TIMEOUT", "300"))
+OLLAMA_TIMEOUT = int(_env("OLLAMA_TIMEOUT", "1800"))
 OLLAMA_NUM_CTX = int(_env("OLLAMA_NUM_CTX", "65536") or "65536")
 
 # Crawling

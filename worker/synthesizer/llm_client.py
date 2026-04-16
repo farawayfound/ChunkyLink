@@ -99,7 +99,7 @@ async def generate(
     if system:
         payload["system"] = system
 
-    read_sec = float(max(int(config.OLLAMA_TIMEOUT), 600))
+    read_sec = float(config.OLLAMA_TIMEOUT)
     timeout = httpx.Timeout(connect=30.0, read=read_sec, write=30.0, pool=30.0)
     url = _ollama_generate_url()
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:

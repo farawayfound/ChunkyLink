@@ -104,14 +104,16 @@ async def run_pipeline(
 
     await _abort_if_cancelled()
     output_format = getattr(job, "output_format", "default") or "default"
+    synthesis_num_predict = 6000
     user_prompt = build_synthesis_prompt(
         job.prompt, sources_for_llm, output_format=output_format,
+        num_predict=synthesis_num_predict,
     )
     markdown = await generate(
         user_prompt,
         system=system_for_format(output_format),
         temperature=0.3,
-        num_predict=8192,
+        num_predict=synthesis_num_predict,
         model=llm_model,
         num_ctx=llm_num_ctx,
     )
@@ -129,7 +131,7 @@ async def run_pipeline(
         temperature=0.2,
         num_predict=512,
         model=llm_model,
-        num_ctx=llm_num_ctx,
+        num_ctx=4096,
     )
 
     source_list = [
