@@ -105,6 +105,10 @@ def _ollama_ps_name(m: dict) -> str:
 
 
 # ── Targeted Ollama HTTP (explicit base URL — Library worker / admin nanobot section) ──
+# These always use a fresh ephemeral client rather than the shared _http_client.
+# The shared client is for the local macmini Ollama (chat/inference); using it
+# for LAN requests to nanobot can cause connection failures when the shared pool
+# has open keepalive connections to localhost.
 
 
 async def health_check_at_base(base_url: str) -> dict:
@@ -113,11 +117,8 @@ async def health_check_at_base(base_url: str) -> dict:
     if not root:
         return {"status": "unconfigured", "error": "No Ollama base URL configured", "base_url": ""}
     try:
-        if _http_client is not None:
-            await _http_client.get(root, timeout=5.0)
-        else:
-            async with _ephemeral_client(timeout=5.0) as c:
-                await c.get(root)
+        async with _ephemeral_client(timeout=5.0) as c:
+            await c.get(root)
         return {"status": "ok", "base_url": root}
     except Exception as e:
         return {"status": "unreachable", "error": str(e), "base_url": root}
@@ -135,11 +136,8 @@ async def list_models_at_base(base_url: str) -> list[dict]:
         return []
     url = f"{root}/api/tags"
     try:
-        if _http_client is not None:
-            resp = await _http_client.get(url, timeout=10.0)
-        else:
-            async with _ephemeral_client(timeout=10.0) as c:
-                resp = await c.get(url)
+        async with _ephemeral_client(timeout=10.0) as c:
+            resp = await c.get(url)
         resp.raise_for_status()
         return resp.json().get("models", [])
     except Exception as e:
@@ -159,11 +157,8 @@ async def list_loaded_models_at_base(base_url: str) -> list[dict]:
         return []
     url = f"{root}/api/ps"
     try:
-        if _http_client is not None:
-            resp = await _http_client.get(url, timeout=5.0)
-        else:
-            async with _ephemeral_client(timeout=5.0) as c:
-                resp = await c.get(url)
+        async with _ephemeral_client(timeout=5.0) as c:
+            resp = await c.get(url)
         resp.raise_for_status()
         return resp.json().get("models", [])
     except Exception as e:
@@ -183,11 +178,8 @@ async def get_model_context_window_at_base(base_url: str, name: str) -> int | No
         return None
     url = f"{root}/api/show"
     try:
-        if _http_client is not None:
-            resp = await _http_client.post(url, json={"name": name}, timeout=10.0)
-        else:
-            async with _ephemeral_client(timeout=10.0) as c:
-                resp = await c.post(url, json={"name": name})
+        async with _ephemeral_client(timeout=10.0) as c:
+            resp = await c.post(url, json={"name": name})
         resp.raise_for_status()
         data = resp.json()
         for key, val in data.get("model_info", {}).items():
@@ -213,28 +205,16 @@ async def pull_model_at_base(base_url: str, name: str) -> AsyncIterator[dict]:
     if not root:
         raise ValueError("No Ollama base URL configured")
     url = f"{root}/api/pull"
-    client = _http_client
-    if client is None:
-        async with _ephemeral_client(timeout=_default_stream_timeout()) as c:
-            async with c.stream("POST", url, json={"name": name}) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    try:
-                        yield json.loads(line)
-                    except Exception:
-                        continue
-        return
-    async with client.stream("POST", url, json={"name": name}) as resp:
-        resp.raise_for_status()
-        async for line in resp.aiter_lines():
-            if not line:
-                continue
-            try:
-                yield json.loads(line)
-            except Exception:
-                continue
+    async with _ephemeral_client(timeout=_default_stream_timeout()) as c:
+        async with c.stream("POST", url, json={"name": name}) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    yield json.loads(line)
+                except Exception:
+                    continue
 
 
 async def pull_model(name: str) -> AsyncIterator[dict]:
@@ -249,11 +229,8 @@ async def delete_model_at_base(base_url: str, name: str) -> dict:
     if not root:
         raise ValueError("No Ollama base URL configured")
     url = f"{root}/api/delete"
-    if _http_client is not None:
-        resp = await _http_client.request("DELETE", url, json={"name": name}, timeout=10.0)
-    else:
-        async with _ephemeral_client(timeout=10.0) as c:
-            resp = await c.request("DELETE", url, json={"name": name})
+    async with _ephemeral_client(timeout=10.0) as c:
+        resp = await c.request("DELETE", url, json={"name": name})
     resp.raise_for_status()
     return {"status": "deleted", "name": name}
 
@@ -270,15 +247,8 @@ async def unload_model_at_base(base_url: str, name: str) -> None:
         raise ValueError("No Ollama base URL configured")
     url = f"{root}/api/generate"
     try:
-        if _http_client is not None:
-            await _http_client.post(
-                url,
-                json={"model": name, "keep_alive": 0, "stream": False},
-                timeout=10.0,
-            )
-        else:
-            async with _ephemeral_client(timeout=10.0) as c:
-                await c.post(url, json={"model": name, "keep_alive": 0, "stream": False})
+        async with _ephemeral_client(timeout=10.0) as c:
+            await c.post(url, json={"model": name, "keep_alive": 0, "stream": False})
         logging.info("ollama_client: unloaded '%s' (base=%s)", name, root)
     except Exception as e:
         logging.warning("ollama_client: unload failed for '%s' at %s: %s", name, root, e)
@@ -307,17 +277,10 @@ async def preload_model_at_base(base_url: str, name: str, num_ctx: int) -> bool:
     url = f"{root}/api/generate"
     payload: dict = {"model": name, "keep_alive": -1, "stream": False, "options": {"num_ctx": int(num_ctx)}}
     try:
-        if _http_client is not None:
-            resp = await _http_client.post(
-                url,
-                json=payload,
-                timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0),
-            )
-        else:
-            async with _ephemeral_client(
-                timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
-            ) as c:
-                resp = await c.post(url, json=payload)
+        async with _ephemeral_client(
+            timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
+        ) as c:
+            resp = await c.post(url, json=payload)
         resp.raise_for_status()
         logging.info("ollama_client: preloaded '%s' with num_ctx=%s at %s", name, num_ctx, root)
         return True
