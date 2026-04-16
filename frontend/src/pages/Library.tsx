@@ -498,9 +498,16 @@ export function Library() {
                   {new Date(t.created_at).toLocaleString()}
                   {t.sources_found > 0 && ` \u00b7 ${t.sources_found} sources`}
                 </span>
-                {t.status === "failed" && t.error && (
-                  <span className="library-task-error-preview" title={t.error}>
-                    {t.error.length > 200 ? `${t.error.slice(0, 200)}…` : t.error}
+                {t.status === "failed" && (
+                  <span
+                    className="library-task-error-preview"
+                    title={t.error || undefined}
+                  >
+                    {t.error && t.error.trim()
+                      ? t.error.length > 200
+                        ? `${t.error.slice(0, 200)}…`
+                        : t.error
+                      : "No error detail on file yet — refresh the page, or check the nanobot worker log (journalctl / docker logs)."}
                   </span>
                 )}
               </div>
@@ -661,8 +668,12 @@ export function Library() {
             </div>
           )}
 
-          {detail.error && (
-            <div className="library-error">Error: {detail.error}</div>
+          {(detail.error?.trim() || detail.status === "failed") && (
+            <div className="library-error">
+              {detail.error?.trim()
+                ? `Error: ${detail.error}`
+                : "No error detail on file yet. Refresh the page, or check the nanobot worker logs."}
+            </div>
           )}
 
           {approveResult && (

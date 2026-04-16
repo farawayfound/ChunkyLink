@@ -181,7 +181,10 @@ async def get_tasks(user_id: str, limit: int = 50, offset: int = 0) -> list[dict
             (user_id, limit, offset),
         )
         rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        out: list[dict] = []
+        for r in rows:
+            out.append(await ensure_failed_task_error(dict(r)))
+        return out
     finally:
         await db.close()
 
@@ -194,7 +197,9 @@ async def get_task(user_id: str, task_id: str) -> dict | None:
             (task_id, user_id),
         )
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        return await ensure_failed_task_error(dict(row))
     finally:
         await db.close()
 
@@ -204,7 +209,9 @@ async def get_task_by_id(task_id: str) -> dict | None:
     try:
         cursor = await db.execute("SELECT * FROM library_tasks WHERE id = ?", (task_id,))
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        return await ensure_failed_task_error(dict(row))
     finally:
         await db.close()
 
@@ -229,7 +236,7 @@ async def list_all_tasks(limit: int = 50, offset: int = 0) -> list[dict]:
         rows = await cursor.fetchall()
         out: list[dict] = []
         for r in rows:
-            d = dict(r)
+            d = await ensure_failed_task_error(dict(r))
             out.append({
                 "id": d["id"],
                 "user_id": d["user_id"],
@@ -559,3 +566,34 @@ async def sync_task_status(job_id: str, status: str, **extra) -> None:
         await db.commit()
     finally:
         await db.close()
+
+
+async def ensure_failed_task_error(task: dict) -> dict:
+    """If status is failed but SQLite has no error text, backfill from Redis (last worker update)."""
+    if task.get("status") != TaskStatus.FAILED:
+        return task
+    if (task.get("error") or "").strip():
+        return task
+    try:
+        q = get_queue()
+    except RuntimeError:
+        return task
+    try:
+        latest = await q.get_latest_status(task["id"])
+    except Exception:
+        log.debug("ensure_failed_task_error: redis read failed for %s", task.get("id"), exc_info=True)
+        return task
+    if latest is None or latest.status != TaskStatus.FAILED:
+        return task
+    msg = (latest.message or "").strip()
+    if not msg:
+        return task
+    await sync_task_status(
+        task["id"],
+        TaskStatus.FAILED,
+        error=msg[:8000],
+        sources_found=int(task.get("sources_found") or 0),
+    )
+    merged = dict(task)
+    merged["error"] = msg[:8000]
+    return merged

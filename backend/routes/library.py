@@ -135,20 +135,21 @@ async def stream_task_status(task_id: str, user: dict = Depends(require_auth)):
                     if update is None:
                         yield ": keepalive\n\n"
                         continue
-                    data = json.dumps(update.to_dict())
-                    yield f"data: {data}\n\n"
-
+                    # Persist before emitting so a follow-up list refresh (e.g. on SSE [DONE])
+                    # always sees error text for failed jobs — avoids racing the DB commit.
                     sync_kwargs: dict = {"sources_found": update.sources_found}
                     if update.status == "failed":
                         msg = (update.message or "").strip()
-                        if msg:
-                            sync_kwargs["error"] = msg[:8000]
+                        sync_kwargs["error"] = (msg or "(Worker reported failure with no message)")[:8000]
 
                     await service.sync_task_status(
                         update.job_id,
                         update.status,
                         **sync_kwargs,
                     )
+
+                    data = json.dumps(update.to_dict())
+                    yield f"data: {data}\n\n"
 
                     if update.status in ("review", "failed", "cancelled"):
                         yield "data: [DONE]\n\n"
@@ -169,19 +170,19 @@ async def stream_task_status(task_id: str, user: dict = Depends(require_auth)):
                 st = row["status"]
                 if st != last_status:
                     last_status = st
-                    upd = StatusUpdate(
-                        job_id=task_id,
-                        status=st,
-                        message="",
-                        progress=0.0,
-                        sources_found=int(row.get("sources_found") or 0),
-                    )
-                    yield f"data: {json.dumps(upd.to_dict())}\n\n"
                     await service.sync_task_status(
                         task_id,
                         st,
                         sources_found=row.get("sources_found"),
                     )
+                    upd = StatusUpdate(
+                        job_id=task_id,
+                        status=st,
+                        message=(row.get("error") or "") if st == "failed" else "",
+                        progress=0.0,
+                        sources_found=int(row.get("sources_found") or 0),
+                    )
+                    yield f"data: {json.dumps(upd.to_dict())}\n\n"
                 if st in _SSE_TERMINAL:
                     yield "data: [DONE]\n\n"
                     return

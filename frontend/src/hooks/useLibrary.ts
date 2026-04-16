@@ -35,7 +35,19 @@ export function useLibrary() {
     setLoading(true);
     try {
       const res = await getLibraryTasks();
-      setTasks(res.tasks || []);
+      const incoming: LibraryTask[] = res.tasks || [];
+      setTasks((prev) => {
+        const prevById = new Map(prev.map((t) => [t.id, t]));
+        return incoming.map((t) => {
+          if (t.status !== "failed") return t;
+          const prior = prevById.get(t.id);
+          const fromApi = t.error != null && String(t.error).trim();
+          const fromPrior =
+            prior?.status === "failed" && prior?.error != null && String(prior.error).trim();
+          const err = (fromApi ? String(t.error).trim() : "") || (fromPrior ? String(prior.error).trim() : "");
+          return { ...t, error: err || null };
+        });
+      });
     } catch (e: any) {
       setError(e.message);
     } finally {

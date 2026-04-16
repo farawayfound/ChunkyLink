@@ -84,7 +84,8 @@ async def _process_job(consumer: QueueConsumer, stream_id: str, job) -> None:
 
     except Exception as exc:
         log.exception("job %s failed: %s", job_id, exc)
-        await consumer.publish_status(job_id, "failed", str(exc))
+        detail = str(exc).strip() or repr(exc) or type(exc).__name__
+        await consumer.publish_status(job_id, "failed", detail)
         await consumer.ack(stream_id)
 
 
