@@ -593,6 +593,14 @@ def _worker_ollama_base_or_400() -> str:
     return base
 
 
+def _normalize_worker_model_name(name: str) -> str:
+    """Map legacy worker model aliases to the current nanobot default."""
+    n = (name or "").strip()
+    if n == "gemma4:e4b":
+        return "gemma4:26b"
+    return n
+
+
 @router.put("/ollama/worker/settings")
 async def admin_worker_ollama_settings(request: Request, user: dict = Depends(require_admin)):
     """Persist nanobot Ollama admin URL, context size, and default model; push model/ctx to Redis."""
@@ -609,7 +617,7 @@ async def admin_worker_ollama_settings(request: Request, user: dict = Depends(re
         settings.WORKER_OLLAMA_NUM_CTX = n
         changed = True
     if "model" in body:
-        m = (body.get("model") or "").strip()
+        m = _normalize_worker_model_name(body.get("model") or "")
         if not m:
             raise HTTPException(400, "model must be non-empty when provided")
         settings.WORKER_OLLAMA_MODEL = m
@@ -646,7 +654,7 @@ async def admin_worker_ollama_set_model(
 ):
     """Set the Library worker's default Ollama model and preload it on nanobot."""
     body = await request.json()
-    name = body.get("name", "").strip()
+    name = _normalize_worker_model_name(body.get("name", ""))
     if not name:
         raise HTTPException(400, "Model name is required")
     base = _worker_ollama_base_or_400()
@@ -670,7 +678,7 @@ async def admin_worker_ollama_set_model(
 async def admin_worker_ollama_pull(request: Request, user: dict = Depends(require_admin)):
     """Pull a model on the nanobot Ollama instance (streams progress)."""
     body = await request.json()
-    name = body.get("name", "").strip()
+    name = _normalize_worker_model_name(body.get("name", ""))
     if not name:
         raise HTTPException(400, "Model name is required")
     base = _worker_ollama_base_or_400()
@@ -713,7 +721,7 @@ async def admin_worker_ollama_load_model(
 ):
     """Load a model into nanobot Ollama memory (single-model policy)."""
     body = await request.json()
-    name = body.get("name", "").strip()
+    name = _normalize_worker_model_name(body.get("name", ""))
     if not name:
         raise HTTPException(400, "Model name is required")
     base = _worker_ollama_base_or_400()

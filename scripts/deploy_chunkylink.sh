@@ -201,11 +201,25 @@ if [[ -x "${VENV}/bin/python" ]]; then
 import json
 import pathlib
 import sys
+import re
 
 repo = pathlib.Path(sys.argv[1])
 model = sys.argv[2]
 ctx = int(sys.argv[3])
-cfg = repo / "data" / "admin_config.json"
+env_file = repo / ".env"
+data_dir = repo / "data"
+if env_file.exists():
+    try:
+        txt = env_file.read_text(encoding="utf-8")
+        m = re.search(r"(?m)^DATA_DIR=(.+)$", txt)
+        if m:
+            raw = m.group(1).strip().strip('"').strip("'")
+            data_dir = pathlib.Path(raw)
+            if not data_dir.is_absolute():
+                data_dir = (repo / data_dir).resolve()
+    except Exception:
+        pass
+cfg = data_dir / "admin_config.json"
 if cfg.exists():
     try:
         data = json.loads(cfg.read_text(encoding="utf-8"))
@@ -220,6 +234,8 @@ if cfg.exists():
         print(f"    updated {cfg}")
     except Exception as exc:
         print(f"WARNING: failed to update {cfg}: {exc}")
+else:
+    print(f"    no admin_config at {cfg} (skipped)")
 PY
 fi
 
