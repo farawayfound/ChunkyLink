@@ -614,7 +614,7 @@ const CTX_PRESETS = [
   { label: "16k", value: 16384 },
   { label: "32k", value: 32768 },
   { label: "64k", value: 65536 },
-  { label: "128k", value: 131072 },
+  { label: "64k", value: 64000 },
 ];
 
 function OllamaTab() {
@@ -905,7 +905,7 @@ function OllamaTab() {
   const worker = data.worker ?? {
     ollama: { status: "unconfigured", error: "Upgrade backend", base_url: "" },
     configured_model: "",
-    num_ctx: 131072,
+    num_ctx: 64000,
     models: [],
     loaded_names: [],
     context_window: null,

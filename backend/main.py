@@ -247,6 +247,18 @@ async def lifespan(app: FastAPI):
         log_event("ollama_startup_warm", model=settings.OLLAMA_MODEL)
     except Exception as exc:
         logging.warning("ollama startup warm failed (keepalive will retry): %s", exc)
+    # Also warm the Library worker model on the nanobot (over LAN) so it's
+    # ready before the first research job arrives.  Non-fatal if nanobot is
+    # unreachable — the worker-side preload is the primary guarantee.
+    worker_base = settings.resolved_worker_ollama_base_url()
+    if worker_base:
+        try:
+            await ensure_single_model_loaded_at_base(
+                worker_base, settings.WORKER_OLLAMA_MODEL, settings.WORKER_OLLAMA_NUM_CTX,
+            )
+            log_event("worker_ollama_startup_warm", model=settings.WORKER_OLLAMA_MODEL)
+        except Exception as exc:
+            logging.warning("worker ollama startup warm failed (non-fatal): %s", exc)
     # Keep the Ollama model warm so first-token latency stays predictable
     keepalive_task = asyncio.create_task(_model_keepalive())
     # Periodically clean up expired/inactive sessions and their user data

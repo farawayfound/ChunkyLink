@@ -280,7 +280,11 @@ def _ollama_same_base_model(loaded_name: str, want: str) -> bool:
 
 
 async def preload_model_at_base(base_url: str, name: str, num_ctx: int) -> bool:
-    """Load a model at *base_url* with keep_alive=-1. Returns True on HTTP success."""
+    """Load a model at *base_url* with keep_alive=-1. Returns True on HTTP success.
+
+    The read timeout is 600s because cold-loading large models (26B+) from disk
+    and allocating the KV cache for a big context window can take several minutes.
+    """
     root = _ollama_root(base_url)
     if not root:
         return False
@@ -288,7 +292,7 @@ async def preload_model_at_base(base_url: str, name: str, num_ctx: int) -> bool:
     payload: dict = {"model": name, "keep_alive": -1, "stream": False, "options": {"num_ctx": int(num_ctx)}}
     try:
         async with _ephemeral_client(
-            timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
+            timeout=httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
         ) as c:
             resp = await c.post(url, json=payload)
         resp.raise_for_status()

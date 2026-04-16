@@ -43,7 +43,7 @@ fi
 
 REPO="$(realpath "${REPO_RAW}")"
 WORKER_MODEL="${DEPLOY_WORKER_OLLAMA_MODEL:-gemma4:26b}"
-WORKER_CTX="${DEPLOY_WORKER_OLLAMA_NUM_CTX:-131072}"
+WORKER_CTX="${DEPLOY_WORKER_OLLAMA_NUM_CTX:-64000}"
 
 # Git 2.35+: sudo (root) + repo owned by ${OWNER} requires an explicit safe path.
 if ! command git config --global --get-all safe.directory 2>/dev/null | grep -qxF "${REPO}"; then
@@ -160,7 +160,7 @@ else
   echo "==> skipping frontend build (DEPLOY_SKIP_NPM=${DEPLOY_SKIP_NPM:-0})"
 fi
 
-# ── Force worker LLM defaults to 26B / 128k on deploy ──────────────────────
+# ── Force worker LLM defaults to 26B / 64k on deploy ──────────────────────
 _upsert_env_kv() {
   local file="$1"
   local key="$2"

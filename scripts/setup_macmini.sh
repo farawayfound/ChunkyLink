@@ -121,6 +121,9 @@ fi
 
 # Pull the default model (gemma4:e4b — effective 4B edge variant, consistent for RAG/chat)
 DEFAULT_MODEL="gemma4:e4b"
+# Worker (nanobot) model defaults — must match what the nanobot GPU can handle.
+WORKER_MODEL="${DEPLOY_WORKER_OLLAMA_MODEL:-gemma4:26b}"
+WORKER_CTX="${DEPLOY_WORKER_OLLAMA_NUM_CTX:-64000}"
 if ollama list 2>/dev/null | grep -q "$DEFAULT_MODEL"; then
     ok "Model $DEFAULT_MODEL already present"
 else
@@ -173,15 +176,28 @@ _sync_ollama_model() {
     "$PYTHON" -c "
 import json, sys, pathlib
 p = pathlib.Path(sys.argv[1])
-d = sys.argv[2]
+chat_model = sys.argv[2]
+worker_model = sys.argv[3]
+worker_ctx = int(sys.argv[4])
 data = json.loads(p.read_text('utf-8'))
+changed = False
+# Chat model — only replace known legacy values
 cur = (data.get('ollama_model') or '').strip()
-if cur and not cur.startswith('nemotron') and cur not in ('llama3.2','llama3.2:latest'):
-    sys.exit(0)
-data['ollama_model'] = d
-p.write_text(json.dumps(data, indent=2) + '\n', 'utf-8')
-print('admin_config.json: ollama_model →', d)
-" "$cfg" "$DEFAULT_MODEL"
+if cur and (cur.startswith('nemotron') or cur in ('llama3.2','llama3.2:latest')):
+    data['ollama_model'] = chat_model
+    changed = True
+# Worker model/ctx — always align so backend publishes correct values to Redis
+wm = (data.get('worker_ollama_model') or '').strip()
+wc = data.get('worker_ollama_num_ctx')
+if wm != worker_model or wc != worker_ctx:
+    data['worker_ollama_model'] = worker_model
+    data['worker_ollama_num_ctx'] = worker_ctx
+    data['worker_ollama_migrated_v2'] = True
+    changed = True
+    print(f'admin_config.json: worker → {worker_model}, num_ctx → {worker_ctx}')
+if changed:
+    p.write_text(json.dumps(data, indent=2) + '\n', 'utf-8')
+" "$cfg" "$DEFAULT_MODEL" "$WORKER_MODEL" "$WORKER_CTX"
 }
 _sync_ollama_model || warn "Model config sync skipped (non-fatal) — set model via Admin UI after startup"
 
