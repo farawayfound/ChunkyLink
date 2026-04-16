@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useState, useCallback } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { User } from "../types";
 import { RequestAccessModal } from "./RequestAccessModal";
 import { BackgroundAudio } from "./BackgroundAudio";
+import { usePageTransition } from "./PageTransitionContext";
 
 interface Props {
   user: User | null;
@@ -12,6 +13,8 @@ interface Props {
 
 export function Layout({ user, onLogout, children }: Props) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { startFlip } = usePageTransition();
   const [showAccessModal, setShowAccessModal] = useState(false);
 
   const navItems = [
@@ -23,6 +26,25 @@ export function Layout({ user, onLogout, children }: Props) {
     ...(user?.role === "admin" ? [{ path: "/admin", label: "Admin" }] : []),
   ];
 
+  const handleNavClick = useCallback(
+    (e: React.MouseEvent<HTMLAnchorElement>, targetPath: string) => {
+      if (targetPath === location.pathname) return;
+      e.preventDefault();
+
+      const currentIdx = navItems.findIndex((n) => n.path === location.pathname);
+      const targetIdx = navItems.findIndex((n) => n.path === targetPath);
+
+      // Pages to the right of current → flip down; pages to the left → flip up
+      const direction = targetIdx > currentIdx ? "down" : "up";
+
+      startFlip(direction).then(() => {
+        navigate(targetPath);
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [location.pathname, navItems, startFlip, navigate],
+  );
+
   return (
     <div className="app-layout">
       <BackgroundAudio />
@@ -31,13 +53,14 @@ export function Layout({ user, onLogout, children }: Props) {
           <Link to="/" className="logo">ChunkyPotato</Link>
           <nav className="nav-links">
             {navItems.map((item) => (
-              <Link
+              <a
                 key={item.path}
-                to={item.path}
+                href={item.path}
                 className={location.pathname === item.path ? "active" : ""}
+                onClick={(e) => handleNavClick(e, item.path)}
               >
                 {item.label}
-              </Link>
+              </a>
             ))}
           </nav>
         </div>

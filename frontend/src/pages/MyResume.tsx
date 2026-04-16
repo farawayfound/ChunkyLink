@@ -32,7 +32,7 @@ const EXPERIENCE: ExperienceItem[] = [
       "Spearheaded AI ingestion pipelines, inference integrations, and self-updating knowledge indices for agentic technical triage assistants using Amazon Q (Claude 4.6) on AWS servers.",
       "Architected a scalable, low-cost local runtime framework for LLM models, reducing token utilization from hundreds of thousands of tokens per response to user configurable limits while providing internal teams with robust, secure, highly relevant, and economical AI context.",
       "Engineered Model Context Protocol (MCP) and Agent Orchestrator physical server on intranet, automatically indexing data from shared Knowledge Base and work notes through OCR and NLP classification and providing tool use such as Database querying and API integrations.",
-      "Self-learning feature checks discovered data through triage sessions against existing indices and automatically adds version-controlled, managed chunks to a “learned” index.",
+      "Self-learning feature checks discovered data through triage sessions against existing indices and automatically adds version-controlled, managed chunks to a \u201clearned\u201d index.",
       "Built an administrator Dashboard to monitor MCP Server tools usage, Knowledge repository and source files management with index building options, structured database administration, client identities and authorizations, output quality monitoring, and catch warnings and errors.",
       "Deployed cronjobs to detect updates and automate database updates and index rebuilds.",
       "Administered the GitLab repository and CI/CD pipelines to ensure automated testing and seamless deployment of new features.",
@@ -113,7 +113,7 @@ const EXPERIENCE: ExperienceItem[] = [
     context:
       "Agile 3D printing, CAD, and fabrication studio serving B2B/B2C clients with rapid prototypes and embedded (Arduino) solutions.",
     summary:
-      "Co-founded a rapid-prototyping startup: owned roadmap and delivery, mentored a tiny technical team, and shipped high-touch hardware projects from Maker’s Cafe operations.",
+      "Co-founded a rapid-prototyping startup: owned roadmap and delivery, mentored a tiny technical team, and shipped high-touch hardware projects from Maker's Cafe operations.",
     bullets: [
       "Defined the roadmap and ran projects from requirements through client review with short feedback loops and integrated operations.",
       "Delivered notable builds including architectural models for Matt Fajkus Architecture, research-oriented 3D scanning for UT/Blanton Museum collaborators, and complex wearable/mechanical prototypes.",
@@ -166,31 +166,103 @@ const TECHNICAL_SKILLS = {
     "SSMS, MongoDB, Claude Code, VS/Code, Ollama/LMS, Linux, Splunk, Jira",
 };
 
-function useRevealOnScroll() {
-  const ref = useRef<HTMLDivElement>(null);
+/**
+ * Scroll-driven 270° rotateX reveal.
+ *
+ * The section starts lying flat (rotateX = 90deg, perpendicular to the screen,
+ * bottom edge toward the viewer). As it scrolls toward the viewport center it
+ * sweeps 270° — passing through the back face — and locks at rotateX = 0deg
+ * (fully upright) once the section center reaches the viewport center.
+ * Scrolling back up reverses the rotation exactly.
+ *
+ * Progress mapping:
+ *   0   → section center at bottom of viewport  → rotateX = 90deg  (flat, entering)
+ *   0.5 → section center at viewport center     → rotateX = 0deg   (locked, readable)
+ *   1   → section center at top of viewport     → rotateX = -180deg (past, exiting upward)
+ *
+ * We clamp at 0deg once progress >= 0.5 so the section stays static while
+ * centered or above center.
+ */
+function useScrollRotate(scrollContainerRef: React.RefObject<HTMLElement | null>, containerReady: boolean) {
+  const sectionRefs = useRef<(HTMLElement | null)[]>([]);
+  const rafRef = useRef(0);
+
+  const register = (el: HTMLElement | null, index: number) => {
+    sectionRefs.current[index] = el;
+  };
 
   useEffect(() => {
-    const root = ref.current;
-    if (!root) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
 
-    const els = root.querySelectorAll<HTMLElement>("[data-reveal]");
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("resume-reveal--visible");
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      { root: null, rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
-    );
+    const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    els.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, []);
+    const update = () => {
+      const vh = container.clientHeight;
 
-  return ref;
+      sectionRefs.current.forEach((el) => {
+        if (!el) return;
+
+        if (prefersReduced) {
+          el.style.transform = "";
+          el.style.opacity = "1";
+          return;
+        }
+
+        const rect = el.getBoundingClientRect();
+        // Center of the section relative to the viewport
+        const sectionCenter = rect.top + rect.height / 2;
+        // progress: 0 when center is at bottom of viewport, 0.5 when at viewport center
+        const progress = 1 - sectionCenter / vh;
+
+        let deg: number;
+        if (progress <= 0) {
+          // Below viewport — flat, perpendicular
+          deg = 90;
+        } else if (progress >= 0.5) {
+          // At or above center — fully upright, locked
+          deg = 0;
+        } else {
+          // Sweeping: progress 0→0.5 maps to rotateX 90→0
+          // 270° total sweep compressed into the 0→0.5 progress window:
+          // at progress=0: 90deg (flat)
+          // at progress=0.5: 0deg (upright)
+          // The 270° arc goes: 90 → 0 → -90 → -180 → ... but we want to
+          // arrive at 0 after a 270° journey, so we start at 90 + 270 = 360
+          // and sweep down to 0. Equivalently: start = 360deg, end = 0deg.
+          // But 360deg = 0deg visually, so we use the range 270→0 mapped
+          // to progress 0→0.5, which gives a 270° sweep arriving at 0.
+          const t = progress / 0.5; // 0→1
+          deg = 270 * (1 - t);
+        }
+
+        el.style.transformOrigin = "center top";
+        el.style.transform = `perspective(1200px) rotateX(${deg}deg)`;
+        // Fade in as it approaches upright — invisible when fully flat, opaque when upright
+        const opacity = progress <= 0 ? 0 : Math.min(1, progress / 0.35);
+        el.style.opacity = String(opacity);
+      });
+
+      rafRef.current = 0;
+    };
+
+    const onScroll = () => {
+      if (!rafRef.current) {
+        rafRef.current = requestAnimationFrame(update);
+      }
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    // Run once on mount to set initial state
+    update();
+
+    return () => {
+      container.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, [scrollContainerRef, containerReady]);
+
+  return register;
 }
 
 function ExpandableCard({
@@ -251,11 +323,26 @@ function ExpandableCard({
 }
 
 export function MyResume() {
-  const containerRef = useRevealOnScroll();
+  // The scroll container is .app-main
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [containerReady, setContainerReady] = useState(false);
+
+  useEffect(() => {
+    const el = pageRef.current?.closest(".app-main") as HTMLElement | null;
+    scrollContainerRef.current = el;
+    setContainerReady(true);
+  }, []);
+
+  const register = useScrollRotate(scrollContainerRef, containerReady);
+
+  const setRef = (i: number) => (el: HTMLElement | null) => {
+    register(el, i);
+  };
 
   return (
-    <div className="resume-page" ref={containerRef}>
-      <header className="resume-hero">
+    <div className="resume-page resume-page--scroll-anim" ref={pageRef}>
+      <header className="resume-hero" ref={setRef(0)}>
         <h1 className="resume-hero__name">David Chui</h1>
         <p className="resume-hero__contact">
           <span>Denver, CO</span>
@@ -271,14 +358,14 @@ export function MyResume() {
         <p className="resume-hero__summary">
           Tenacious Software Engineer and US Air Force veteran with 7+ years of experience specializing in .NET, Azure,
           and AI integrations. Proven track record of leveraging llm's, knowlege ingestion prompt
-          engineering, and agentic workflows to accelerate enterprise software delivery. Passionate technologist 
+          engineering, and agentic workflows to accelerate enterprise software delivery. Passionate technologist{" "}
           skilled at designing scalable cloud architectures, translating stakeholder requirements into
           technical acceptance criteria, developing new AI tools to maximize productivity, and mentoring teams through
           implementation and adoption.
         </p>
       </header>
 
-      <section className="resume-block" data-reveal aria-labelledby="resume-skills-heading">
+      <section className="resume-block" ref={setRef(1)} aria-labelledby="resume-skills-heading">
         <h2 id="resume-skills-heading" className="resume-block__title">
           Technical Skills
         </h2>
@@ -292,7 +379,7 @@ export function MyResume() {
         </div>
       </section>
 
-      <section className="resume-block" data-reveal aria-labelledby="resume-exp-heading">
+      <section className="resume-block" ref={setRef(2)} aria-labelledby="resume-exp-heading">
         <h2 id="resume-exp-heading" className="resume-block__title">
           Experience
         </h2>
@@ -311,7 +398,7 @@ export function MyResume() {
         </div>
       </section>
 
-      <section className="resume-block" data-reveal aria-labelledby="resume-edu-heading">
+      <section className="resume-block" ref={setRef(3)} aria-labelledby="resume-edu-heading">
         <h2 id="resume-edu-heading" className="resume-block__title">
           Education
         </h2>
@@ -329,7 +416,7 @@ export function MyResume() {
         </div>
       </section>
 
-      <section className="resume-block resume-block--last" data-reveal aria-labelledby="resume-cert-heading">
+      <section className="resume-block resume-block--last" ref={setRef(4)} aria-labelledby="resume-cert-heading">
         <h2 id="resume-cert-heading" className="resume-block__title">
           Certifications
         </h2>

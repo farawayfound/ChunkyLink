@@ -8,6 +8,7 @@ import { SuggestionCarousel } from "../components/SuggestionCarousel";
 import type { SuggestionCarouselVisualMode } from "../components/SuggestionCarousel";
 import { getChatSuggestions } from "../api/client";
 import type { ChatMessage } from "../types";
+import { usePageTransition } from "../components/PageTransitionContext";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -44,6 +45,8 @@ export function AskMeAnything() {
   const [showAccessModal, setShowAccessModal] = useState(false);
   const [rateLimited, setRateLimited] = useState(false);
 
+  const { flipping } = usePageTransition();
+  const [pageReady, setPageReady] = useState(false);
   const [carouselVisual, setCarouselVisual] = useState<"intro" | "idle">("intro");
   const [carouselSession, setCarouselSession] = useState(0);
   const [pickHero, setPickHero] = useState<{ slot: number; text: string } | null>(null);
@@ -83,15 +86,26 @@ export function AskMeAnything() {
       });
   }, []);
 
+  // Wait for the page flip to finish before starting the carousel intro
   useEffect(() => {
-    if (reduceMotion || suggestionPool.length === 0) {
+    if (flipping) {
+      setPageReady(false);
+      return;
+    }
+    // Small delay to let the flip-in animation complete
+    const t = window.setTimeout(() => setPageReady(true), 80);
+    return () => window.clearTimeout(t);
+  }, [flipping]);
+
+  useEffect(() => {
+    if (!pageReady || reduceMotion || suggestionPool.length === 0) {
       setCarouselVisual("idle");
       return;
     }
     setCarouselVisual("intro");
     const t = window.setTimeout(() => setCarouselVisual("idle"), 760);
     return () => window.clearTimeout(t);
-  }, [suggestionPool, reduceMotion, carouselSession]);
+  }, [suggestionPool, reduceMotion, carouselSession, pageReady]);
 
   useEffect(() => {
     const n = turns.length;

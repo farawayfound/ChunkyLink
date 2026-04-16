@@ -1232,6 +1232,14 @@ body {
   padding: 28px 20px 80px;
 }
 
+/* Scroll-driven 270° rotateX reveal */
+.resume-page--scroll-anim > * {
+  will-change: transform, opacity;
+  /* backface-visibility hidden so the back face is invisible during the sweep */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
 .resume-hero {
   margin-bottom: 2.5rem;
   padding-bottom: 1.75rem;
@@ -2426,6 +2434,32 @@ button.chip:hover { border-color: var(--primary); }
   background: rgba(34, 197, 94, 0.1);
   border-color: var(--success);
   color: var(--success);
+}
+
+/* ── Snap-in section animations ─────────────────────────── */
+.snap-in {
+  will-change: transform, opacity;
+  transition:
+    transform 0.62s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.52s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.snap-in--from-left  { transform: translateX(-88vw); opacity: 0; }
+.snap-in--from-right { transform: translateX(88vw);  opacity: 0; }
+.snap-in--from-top   { transform: translateY(-60vh); opacity: 0; }
+.snap-in--from-bottom{ transform: translateY(60vh);  opacity: 0; }
+
+.snap-in--visible {
+  transform: translate(0, 0) !important;
+  opacity: 1 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snap-in {
+    transform: none !important;
+    opacity: 1 !important;
+    transition: none !important;
+  }
 }
 
 /* Responsive */
