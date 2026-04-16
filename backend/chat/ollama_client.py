@@ -261,12 +261,22 @@ async def unload_model(name: str) -> None:
 
 
 def _ollama_same_base_model(loaded_name: str, want: str) -> bool:
-    """True if Ollama model names refer to the same base (tag-agnostic)."""
+    """True if Ollama model names refer to the same model (tag-aware).
+
+    Ollama treats an untagged name and ``:latest`` as synonymous, so
+    ``gemma3`` matches ``gemma3:latest``.  Different explicit tags are
+    NOT equivalent: ``gemma4:e4b`` ≠ ``gemma4:26b``.
+    """
     if not loaded_name or not want:
         return False
-    a = loaded_name.split(":", 1)[0]
-    b = want.split(":", 1)[0]
-    return a == b
+
+    def _norm(n: str) -> str:
+        n = n.strip()
+        if ":" not in n:
+            return f"{n}:latest"
+        return n
+
+    return _norm(loaded_name) == _norm(want)
 
 
 async def preload_model_at_base(base_url: str, name: str, num_ctx: int) -> bool:
