@@ -208,6 +208,10 @@ cfg = repo / "data" / "admin_config.json"
 if cfg.exists():
     try:
         data = json.loads(cfg.read_text(encoding="utf-8"))
+        # Backend startup keepalive uses ``ollama_model``/``num_ctx``; if these
+        # stay on legacy e4b/4k they will immediately reload e4b after restart.
+        data["ollama_model"] = model
+        data["num_ctx"] = ctx
         data["worker_ollama_model"] = model
         data["worker_ollama_num_ctx"] = ctx
         data["worker_ollama_migrated_v2"] = True

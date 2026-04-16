@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """Index management routes — build, status, stats."""
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -11,6 +10,7 @@ from backend.auth.middleware import require_auth
 from backend.config import get_settings
 from backend.storage import get_user_upload_dir, get_user_index_dir, get_user_chunking_config
 from backend.logger import log_event
+from backend.services.notify_email import resolve_notification_email
 
 router = APIRouter()
 
@@ -44,21 +44,12 @@ def _send_complete_email_sync(
     if not to_email:
         return
     try:
-        from backend.services.email import send_index_complete_email
-        try:
-            asyncio.run(send_index_complete_email(
-                to_email, doc_count, chunk_count, insights_generated,
-                failed=failed, error=error,
-            ))
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(send_index_complete_email(
-                    to_email, doc_count, chunk_count, insights_generated,
-                    failed=failed, error=error,
-                ))
-            finally:
-                loop.close()
+        from backend.services.email import send_index_complete_email_sync
+
+        send_index_complete_email_sync(
+            to_email, doc_count, chunk_count, insights_generated,
+            failed=failed, error=error,
+        )
     except Exception as exc:
         logging.warning("index-complete email send failed for %s: %s", to_email, exc)
 
@@ -107,52 +98,12 @@ def _run_index(
         )
 
 
-import re as _re
-
-_EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
 async def _resolve_notify_email(user_id: str, submitted: str | None) -> str | None:
-    """Decide which email (if any) to notify on completion.
-
-    Priority: submitted (validated) → users.email → access_requests.email lookup.
-    If submitted is provided, also persist it to users.email for future runs.
-    """
-    from backend.database import get_db
-
-    cleaned = (submitted or "").strip().lower()
-    if cleaned and not _EMAIL_RE.match(cleaned):
-        raise HTTPException(400, "Invalid email address")
-
-    db = await get_db()
+    """Decide which email (if any) to notify on completion."""
     try:
-        if cleaned:
-            await db.execute("UPDATE users SET email = ? WHERE id = ?", (cleaned, user_id))
-            await db.commit()
-            return cleaned
-
-        cursor = await db.execute("SELECT email FROM users WHERE id = ?", (user_id,))
-        row = await cursor.fetchone()
-        if row and row["email"]:
-            return row["email"]
-
-        cursor = await db.execute(
-            "SELECT ar.email FROM access_requests ar "
-            "JOIN sessions s ON s.user_id = ? "
-            "JOIN invite_codes ic ON ic.code = ar.invite_code "
-            "WHERE ar.status = 'sent' AND ic.created_by = 'system:request-access' "
-            "ORDER BY ar.created_at DESC LIMIT 1",
-            (user_id,),
-        )
-        row = await cursor.fetchone()
-        if row and row["email"]:
-            await db.execute("UPDATE users SET email = ? WHERE id = ?", (row["email"], user_id))
-            await db.commit()
-            return row["email"]
-    finally:
-        await db.close()
-
-    return None
+        return await resolve_notification_email(user_id, submitted)
+    except ValueError:
+        raise HTTPException(400, "Invalid email address") from None
 
 
 @router.post("/build")

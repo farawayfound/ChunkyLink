@@ -14,11 +14,10 @@ export type SuggestionCarouselVisualMode = "intro" | "idle" | "pickHero" | "scat
 
 type Props = {
   pool: string[];
-  /** Called when user commits a choice from a readable front card. */
-  onPick: (question: string, slotIndex: number) => void;
+  /** Source element is used for FLIP-style handoff to the AMA prompt card. */
+  onPick: (question: string, slotIndex: number, sourceEl: HTMLButtonElement) => void;
   paused?: boolean;
   visualMode: SuggestionCarouselVisualMode;
-  /** Required when visualMode is `pickHero`. */
   pickHeroSlot?: number | null;
 };
 
@@ -67,10 +66,10 @@ export function SuggestionCarousel({
   const lastTRef = useRef<number | null>(null);
   const edgePrimedRef = useRef(false);
 
-  const freeze =
-    visualMode === "pickHero" ||
-    visualMode === "scatterAll" ||
-    visualMode === "intro";
+  /** Pause auto-spin + slot refresh (intro / pick / scatter). */
+  const freezeSpin = visualMode === "pickHero" || visualMode === "scatterAll" || visualMode === "intro";
+  /** Block drag on empty stage + block stray clicks only during pick/scatter sequences. */
+  const blockStageDrag = visualMode === "pickHero" || visualMode === "scatterAll";
 
   useEffect(() => {
     if (pool.length === 0) return;
@@ -140,7 +139,7 @@ export function SuggestionCarousel({
       const dt = Math.min((t - lastTRef.current) / 1000, 0.05);
       lastTRef.current = t;
 
-      if (!paused && !freeze && !pointerOverStageRef.current && !draggingRef.current) {
+      if (!paused && !freezeSpin && !pointerOverStageRef.current && !draggingRef.current) {
         spinDegRef.current += AUTO_DEG_PER_SEC * dt;
       }
 
@@ -161,7 +160,7 @@ export function SuggestionCarousel({
         const cosF = Math.cos((rel * Math.PI) / 180);
         if (!edgePrimedRef.current) {
           prevCosRef.current[i] = cosF;
-        } else if (!freeze) {
+        } else if (!freezeSpin) {
           const prev = prevCosRef.current[i];
           if (prev > EDGE_COS && cosF <= EDGE_COS) {
             refreshSlot(i);
@@ -176,7 +175,7 @@ export function SuggestionCarousel({
           const readable = cosF >= READABLE_COS;
           const vis = 0.22 + 0.78 * Math.max(0, Math.min(1, (cosF - 0.08) / 0.92));
           btn.style.opacity = String(vis);
-          const allowClick = readable && !paused && !freeze;
+          const allowClick = readable && !paused && !blockStageDrag;
           btn.style.pointerEvents = allowClick ? "auto" : "none";
           btn.style.cursor = allowClick ? "pointer" : "default";
         }
@@ -192,10 +191,10 @@ export function SuggestionCarousel({
       cancelAnimationFrame(rafRef.current);
       lastTRef.current = null;
     };
-  }, [paused, refreshSlot, freeze]);
+  }, [paused, refreshSlot, freezeSpin, blockStageDrag]);
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (paused || freeze) return;
+    if (paused || blockStageDrag) return;
     const t = e.target as HTMLElement;
     if (t.closest(".suggestion-carousel-card")) return;
     draggingRef.current = true;
@@ -210,19 +209,19 @@ export function SuggestionCarousel({
     dragMovedRef.current = false;
   };
 
-  const onCardClick = (slot: number) => {
-    if (paused || freeze || dragMovedRef.current) return;
+  const onCardClick = (slot: number, e: React.MouseEvent<HTMLButtonElement>) => {
+    if (paused || blockStageDrag || dragMovedRef.current) return;
     const rel = wrapRelDeg(slot * STEP_DEG + spinDegRef.current);
     const cosF = Math.cos((rel * Math.PI) / 180);
     if (cosF < READABLE_COS) return;
-    onPick(texts[slot] ?? "", slot);
+    onPick(texts[slot] ?? "", slot, e.currentTarget);
   };
 
   const stageClass =
     "suggestion-carousel-stage" +
     (visualMode === "pickHero" ? " suggestion-carousel-stage--pick" : "") +
     (visualMode === "scatterAll" ? " suggestion-carousel-stage--scatter-all" : "") +
-    (freeze ? " suggestion-carousel-stage--frozen" : "");
+    (blockStageDrag ? " suggestion-carousel-stage--block-drag" : "");
 
   return (
     <div className="suggestion-carousel" aria-label="Suggested questions carousel">
@@ -257,23 +256,16 @@ export function SuggestionCarousel({
                     ? " suggestion-carousel-flip--intro-left"
                     : " suggestion-carousel-flip--intro-right";
               }
-              if (isHero) flipMod += " suggestion-carousel-flip--hero";
+              if (isHero) flipMod += " suggestion-carousel-flip--hero-handoff";
               else if (isLeftExit) flipMod += " suggestion-carousel-flip--exit-left";
               else if (isRightExit) flipMod += " suggestion-carousel-flip--exit-right";
               else if (visualMode === "scatterAll") {
                 flipMod += ` suggestion-carousel-flip--scatter-${i % 4}`;
               }
 
-              const heroFaceYDeg =
-                isHero && pickHeroSlot != null
-                  ? -wrapRelDeg(pickHeroSlot * STEP_DEG + spinDegRef.current)
-                  : 0;
               const flipStyle: React.CSSProperties = {};
               if (visualMode === "intro") {
                 flipStyle.animationDelay = `${i * 0.04}s`;
-              }
-              if (isHero) {
-                (flipStyle as Record<string, string>)["--ama-pick-from"] = `${heroFaceYDeg}deg`;
               }
 
               return (
@@ -291,9 +283,11 @@ export function SuggestionCarousel({
                       className="suggestion-carousel-card"
                       disabled={paused}
                       onPointerDown={onCardPointerDown}
-                      onClick={() => onCardClick(i)}
+                      onClick={(e) => onCardClick(i, e)}
                     >
-                      <span className="suggestion-carousel-card-text">{text}</span>
+                      <span className="suggestion-carousel-card-text-clip">
+                        <span className="suggestion-carousel-card-text">{text}</span>
+                      </span>
                     </button>
                   </div>
                 </div>

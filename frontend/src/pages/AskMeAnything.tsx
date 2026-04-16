@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from "react";
 import { useChat } from "../hooks/useChat";
 import { ChatMessage as ChatMessageView } from "../components/ChatMessage";
 import { ChatInput } from "../components/ChatInput";
@@ -28,9 +28,17 @@ function groupTurns(messages: ChatMessage[]): { user: ChatMessage; assistant: Ch
   return out;
 }
 
+type FlightRect = { left: number; top: number; width: number; height: number };
+type FlightState = { text: string; from: FlightRect; source: "carousel" | "typed" };
+
 export function AskMeAnything() {
   const { messages, streaming, phase, send, clear: clearChat } = useChat("/chat/ask");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputBarRef = useRef<HTMLDivElement>(null);
+  const firstQRef = useRef<HTMLDivElement>(null);
+  const flightElRef = useRef<HTMLDivElement>(null);
+  const flightAnimKeyRef = useRef<string>("");
+
   const [suggestionPool, setSuggestionPool] = useState<string[]>([]);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [showAccessModal, setShowAccessModal] = useState(false);
@@ -43,6 +51,7 @@ export function AskMeAnything() {
   const [threadExiting, setThreadExiting] = useState(false);
   const [firstTurnKind, setFirstTurnKind] = useState<null | "carousel" | "typed">(null);
   const [flyInTurnIndex, setFlyInTurnIndex] = useState<number | null>(null);
+  const [flight, setFlight] = useState<FlightState | null>(null);
   const prevTurnsLenRef = useRef(0);
 
   const turns = useMemo(() => groupTurns(messages), [messages]);
@@ -97,6 +106,70 @@ export function AskMeAnything() {
     return () => window.clearTimeout(t);
   }, [turns.length]);
 
+  useLayoutEffect(() => {
+    if (!flight || messages.length < 2) {
+      if (!flight) flightAnimKeyRef.current = "";
+      return;
+    }
+    const fly = flightElRef.current;
+    const target = firstQRef.current;
+    if (!fly || !target) return;
+
+    const flightSource = flight.source;
+    const animKey = `${flightSource}-${flight.from.left},${flight.from.top},${flight.text}`;
+    if (flightAnimKeyRef.current === animKey) return;
+    flightAnimKeyRef.current = animKey;
+
+    const to = target.getBoundingClientRect();
+    const f = flight.from;
+
+    fly.style.position = "fixed";
+    fly.style.left = `${f.left}px`;
+    fly.style.top = `${f.top}px`;
+    fly.style.width = `${f.width}px`;
+    fly.style.height = `${f.height}px`;
+    fly.style.transition = "none";
+    fly.classList.remove("ama-prompt-flight--at-target");
+    void fly.offsetWidth;
+
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(safety);
+      fly.removeEventListener("transitionend", onEnd);
+      flightAnimKeyRef.current = "";
+      setFlight(null);
+      if (flightSource === "carousel") {
+        setPickHero(null);
+      }
+    };
+
+    const onEnd = () => finish();
+
+    const safety = window.setTimeout(finish, 1100);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (finished) return;
+        fly.classList.add("ama-prompt-flight--at-target");
+        fly.style.transition =
+          "left 0.68s cubic-bezier(0.22, 1, 0.36, 1), top 0.68s cubic-bezier(0.22, 1, 0.36, 1), width 0.68s cubic-bezier(0.22, 1, 0.36, 1), height 0.68s cubic-bezier(0.22, 1, 0.36, 1), font-size 0.68s cubic-bezier(0.22, 1, 0.36, 1), padding 0.68s cubic-bezier(0.22, 1, 0.36, 1)";
+        fly.style.left = `${to.left}px`;
+        fly.style.top = `${to.top}px`;
+        fly.style.width = `${to.width}px`;
+        fly.style.height = `${to.height}px`;
+        fly.addEventListener("transitionend", onEnd, { once: true });
+      });
+    });
+
+    return () => {
+      finished = true;
+      window.clearTimeout(safety);
+      fly.removeEventListener("transitionend", onEnd);
+    };
+  }, [flight, messages.length]);
+
   useEffect(() => {
     if (rateLimited) return;
     const lastMsg = messages[messages.length - 1];
@@ -121,7 +194,7 @@ export function AskMeAnything() {
   );
 
   const handlePickFromCarousel = useCallback(
-    (q: string, slot: number) => {
+    (q: string, slot: number, sourceEl: HTMLButtonElement) => {
       if (rateLimited) {
         setShowAccessModal(true);
         return;
@@ -132,11 +205,17 @@ export function AskMeAnything() {
         return;
       }
       setFirstTurnKind("carousel");
+      flightAnimKeyRef.current = "";
+      const fr = sourceEl.getBoundingClientRect();
+      setFlight({
+        text: q,
+        from: { left: fr.left, top: fr.top, width: fr.width, height: fr.height },
+        source: "carousel",
+      });
       setPickHero({ slot, text: q });
       window.setTimeout(() => {
         void baseSend(q);
-        setPickHero(null);
-      }, 700);
+      }, 120);
     },
     [rateLimited, reduceMotion, baseSend],
   );
@@ -153,13 +232,25 @@ export function AskMeAnything() {
         return;
       }
       const isFirst = messages.length === 0;
-      if (isFirst && suggestionPool.length > 0 && !pickHero) {
+      if (isFirst && !pickHero) {
         setFirstTurnKind("typed");
-        setScatterAll(true);
+        if (suggestionPool.length > 0) {
+          setScatterAll(true);
+        }
+        if (!reduceMotion && inputBarRef.current) {
+          flightAnimKeyRef.current = "";
+          const r = inputBarRef.current.getBoundingClientRect();
+          setFlight({
+            text: query,
+            from: { left: r.left, top: r.top, width: r.width, height: r.height },
+            source: "typed",
+          });
+        }
+        const scatterMs = suggestionPool.length > 0 ? 560 : 48;
         window.setTimeout(() => {
           void baseSend(query);
           setScatterAll(false);
-        }, 580);
+        }, scatterMs);
         return;
       }
       void baseSend(query);
@@ -169,7 +260,9 @@ export function AskMeAnything() {
 
   const handleClear = useCallback(() => {
     if (messages.length === 0) return;
+    setFlight(null);
     setPickHero(null);
+    flightAnimKeyRef.current = "";
     setScatterAll(false);
     if (reduceMotion) {
       clearChat();
@@ -246,11 +339,14 @@ export function AskMeAnything() {
               const isLastTurn = i === turns.length - 1;
               const qClass =
                 "ama-q-card" +
-                (i === 0 && firstTurnKind === "typed" ? " ama-q-card--from-input-bar" : "") +
-                (i > 0 && flyInTurnIndex === i ? " ama-q-card--from-input" : "");
+                (i === 0 && firstTurnKind === "typed" && reduceMotion ? " ama-q-card--from-input-bar" : "") +
+                (i > 0 && flyInTurnIndex === i ? " ama-q-card--from-input" : "") +
+                (flight && i === 0 ? " ama-q-card--flight-hidden" : "");
               return (
                 <div key={`${i}-${t.user.content.slice(0, 40)}`} className="ama-turn">
-                  <div className={qClass}>{t.user.content}</div>
+                  <div ref={i === 0 ? firstQRef : undefined} className={qClass}>
+                    {t.user.content}
+                  </div>
                   {streaming && isLastTurn && phase !== "idle" && (
                     <div className="ama-progress-track ama-progress-track--slide-open">
                       <div className="ama-progress-inner">
@@ -289,7 +385,23 @@ export function AskMeAnything() {
         <div ref={bottomRef} />
       </div>
 
+      {flight && (
+        <div
+          ref={flightElRef}
+          className="ama-prompt-flight"
+          style={{
+            left: flight.from.left,
+            top: flight.from.top,
+            width: flight.from.width,
+            height: flight.from.height,
+          }}
+        >
+          {flight.text}
+        </div>
+      )}
+
       <ChatInput
+        ref={inputBarRef}
         onSend={handleSend}
         disabled={streaming}
         placeholder={

@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS library_tasks (
     sources_found INTEGER NOT NULL DEFAULT 0,
     artifact_path TEXT,
     error TEXT,
+    notify_email TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
@@ -159,11 +160,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 sources_found INTEGER NOT NULL DEFAULT 0,
                 artifact_path TEXT,
                 error TEXT,
+                notify_email TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
             CREATE INDEX IF NOT EXISTS idx_library_user ON library_tasks(user_id);
             CREATE INDEX IF NOT EXISTS idx_library_status ON library_tasks(status);
         """)
+    if "library_tasks" in existing:
+        lib_cols = {row[1] for row in conn.execute("PRAGMA table_info(library_tasks)")}
+        if "notify_email" not in lib_cols:
+            conn.execute("ALTER TABLE library_tasks ADD COLUMN notify_email TEXT")
 
 
 async def get_db() -> aiosqlite.Connection:

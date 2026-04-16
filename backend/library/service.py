@@ -11,6 +11,7 @@ from pathlib import Path
 from backend.config import get_settings
 from backend.database import get_db
 from backend.library.models import OUTPUT_FORMATS, ResearchJob, StatusUpdate, TaskStatus, new_job_id
+from backend.services.notify_email import parse_submitted_notify_email, resolve_notification_email
 from backend.library.queue import get_queue
 from backend.storage import get_user_upload_dir, get_user_index_dir
 
@@ -117,6 +118,8 @@ async def submit_research(
             "cancel one or wait for a task to finish"
         )
 
+    notify_stored = parse_submitted_notify_email(notify_email)
+
     queue = get_queue()
 
     job_id = new_job_id()
@@ -125,9 +128,9 @@ async def submit_research(
     db = await get_db()
     try:
         await db.execute(
-            "INSERT INTO library_tasks (id, user_id, prompt, status, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (job_id, user_id, prompt, TaskStatus.QUEUED, now, now),
+            "INSERT INTO library_tasks (id, user_id, prompt, status, created_at, updated_at, notify_email)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (job_id, user_id, prompt, TaskStatus.QUEUED, now, now, notify_stored),
         )
         await db.commit()
     finally:
@@ -307,6 +310,29 @@ async def receive_result(
         await db.close()
 
     log.info("received result for job %s — %d sources, moved to review", job_id, len(sources))
+
+    to_email = (task.get("notify_email") or "").strip().lower()
+    if not to_email:
+        to_email = await resolve_notification_email(user_id, None)
+    if to_email:
+        from backend.services.email import send_library_research_ready_email_sync
+
+        prompt_text = task.get("prompt") or ""
+        try:
+            await asyncio.to_thread(
+                send_library_research_ready_email_sync,
+                to_email,
+                prompt_text,
+                job_id,
+            )
+        except Exception:
+            log.warning(
+                "library completion email failed for job %s (to=%s)",
+                job_id,
+                to_email,
+                exc_info=True,
+            )
+
     return {"status": "review", "artifact_path": str(artifact_path)}
 
 
