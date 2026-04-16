@@ -6,6 +6,7 @@ import logging
 from typing import Any, Awaitable, Callable, Coroutine, Optional
 
 import config
+from agent_debug_log import agent_log
 from crawler.search import run_search
 from crawler.scraper import scrape_urls
 from synthesizer.llm_client import generate, quick_generate
@@ -52,6 +53,14 @@ async def run_pipeline(
 
     llm_model = config.OLLAMA_MODEL
     llm_num_ctx = config.OLLAMA_NUM_CTX
+    # #region agent log
+    agent_log(
+        hypothesis_id="H4",
+        location="pipeline.py:run_pipeline:start",
+        message="pipeline_start",
+        data={"model": llm_model, "num_ctx": llm_num_ctx, "prompt_len": len(job.prompt)},
+    )
+    # #endregion
 
     async def _llm_quick(prompt: str) -> str:
         return await quick_generate(prompt, model=llm_model, num_ctx=llm_num_ctx)
@@ -65,6 +74,14 @@ async def run_pipeline(
         max_results=job.max_sources,
         llm_fn=_llm_quick,
     )
+    # #region agent log
+    agent_log(
+        hypothesis_id="H2",
+        location="pipeline.py:run_pipeline:post_search",
+        message="search_done",
+        data={"n_results": len(search_results)},
+    )
+    # #endregion
 
     await _abort_if_cancelled()
 
@@ -80,6 +97,17 @@ async def run_pipeline(
         max_concurrent=config.MAX_CONCURRENT_SCRAPES,
         timeout=config.SCRAPE_TIMEOUT,
     )
+    # #region agent log
+    agent_log(
+        hypothesis_id="H1",
+        location="pipeline.py:run_pipeline:post_scrape",
+        message="scrape_done",
+        data={
+            "n_pages": len(pages),
+            "n_good": sum(1 for p in pages if p.success and len(p.content) > 100),
+        },
+    )
+    # #endregion
 
     await _abort_if_cancelled()
 
@@ -108,6 +136,19 @@ async def run_pipeline(
     user_prompt = build_synthesis_prompt(
         job.prompt, sources_for_llm, output_format=output_format,
     )
+    # #region agent log
+    agent_log(
+        hypothesis_id="H3",
+        location="pipeline.py:run_pipeline:pre_synthesis",
+        message="about_to_generate_markdown",
+        data={
+            "model": llm_model,
+            "num_ctx": llm_num_ctx,
+            "user_prompt_len": len(user_prompt),
+            "n_sources": len(sources_for_llm),
+        },
+    )
+    # #endregion
     markdown = await generate(
         user_prompt,
         system=system_for_format(output_format),
@@ -115,6 +156,14 @@ async def run_pipeline(
         model=llm_model,
         num_ctx=llm_num_ctx,
     )
+    # #region agent log
+    agent_log(
+        hypothesis_id="H3",
+        location="pipeline.py:run_pipeline:post_synthesis_md",
+        message="markdown_generated",
+        data={"markdown_len": len(markdown or "")},
+    )
+    # #endregion
 
     await _abort_if_cancelled()
 

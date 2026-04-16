@@ -12,6 +12,7 @@ import httpx
 
 import config
 import sysstats
+from agent_debug_log import agent_log
 from queue_consumer import QueueConsumer, WORKER_OLLAMA_REDIS_KEY
 
 _STATS_KEY_PREFIX = "worker:stats:"
@@ -48,6 +49,18 @@ async def _sync_worker_config(consumer: QueueConsumer) -> None:
             config.OLLAMA_MODEL = str(data["model"]).strip()
         if data.get("num_ctx") is not None:
             config.OLLAMA_NUM_CTX = int(data["num_ctx"])
+        # #region agent log
+        agent_log(
+            hypothesis_id="H4",
+            location="main.py:_sync_worker_config",
+            message="redis_ollama_sync",
+            data={
+                "raw_len": len(raw),
+                "model": config.OLLAMA_MODEL,
+                "num_ctx": config.OLLAMA_NUM_CTX,
+            },
+        )
+        # #endregion
     except Exception as exc:
         log.debug("config sync from redis skipped: %s", exc)
 
@@ -110,6 +123,18 @@ async def _process_job(consumer: QueueConsumer, stream_id: str, job) -> None:
 
     job_id = job.job_id
     log.info("processing job %s — %r", job_id, job.prompt[:80])
+    # #region agent log
+    agent_log(
+        hypothesis_id="H4",
+        location="main.py:_process_job:start",
+        message="job_start_after_sync",
+        data={
+            "job_id": job_id,
+            "model": config.OLLAMA_MODEL,
+            "num_ctx": config.OLLAMA_NUM_CTX,
+        },
+    )
+    # #endregion
 
     async def cancel_check() -> bool:
         return await consumer.is_cancel_requested(job_id)
