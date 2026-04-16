@@ -104,7 +104,7 @@ async def run_pipeline(
 
     await _abort_if_cancelled()
     output_format = getattr(job, "output_format", "default") or "default"
-    synthesis_num_predict = 6000
+    synthesis_num_predict = 1800 + (job.max_sources * 500)
     user_prompt = build_synthesis_prompt(
         job.prompt, sources_for_llm, output_format=output_format,
         num_predict=synthesis_num_predict,
