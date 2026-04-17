@@ -217,10 +217,40 @@ ok "Python environment ready"
 # ── 9. Frontend build ─────────────────────────────────────────────────────────
 info "Building frontend (clean)..."
 cd frontend
-# Wipe prior dist + vite cache so a stale build can never shadow a fresh one.
-rm -rf dist node_modules/.vite 2>/dev/null || true
-npm ci --silent
-npm run build
+# Wipe only the Vite dev-server cache — keep dist intact until a new build
+# succeeds so the running backend keeps serving pages during the build.
+rm -rf node_modules/.vite 2>/dev/null || true
+
+# Install deps: prefer npm ci (lock-file-validated) but fall back to
+# npm install when the lockfile is out of sync with package.json
+# (e.g. a package was added locally without committing the updated lock file).
+if npm ci --silent 2>/dev/null; then
+    ok "npm ci succeeded"
+else
+    warn "npm ci failed (lockfile may be out of sync) — retrying with npm install"
+    npm install --silent || die "npm install failed — cannot build frontend"
+    ok "npm install succeeded"
+fi
+
+# Back up the current dist so we can restore it if the new build fails.
+if [[ -d dist ]]; then
+    rm -rf dist.bak 2>/dev/null || true
+    cp -a dist dist.bak
+fi
+
+# Build into dist.  On failure, restore the backup so the server keeps working.
+rm -rf dist 2>/dev/null || true
+if npm run build; then
+    rm -rf dist.bak 2>/dev/null || true
+    ok "Frontend build succeeded"
+else
+    if [[ -d dist.bak ]]; then
+        mv dist.bak dist
+        warn "Frontend build failed — previous dist restored; server still running"
+    fi
+    die "Frontend build failed — check output above for details"
+fi
+
 cd ..
 DIST_INDEX="$INSTALL_DIR/frontend/dist/index.html"
 if [[ ! -f "$DIST_INDEX" ]]; then

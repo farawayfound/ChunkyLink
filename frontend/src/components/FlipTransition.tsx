@@ -11,7 +11,7 @@ import { usePageTransition } from "./PageTransitionContext";
  * - Sits as a fixed overlay; pointer-events:none when idle.
  */
 export function FlipTransition({ appRef }: { appRef: React.RefObject<HTMLElement | null> }) {
-  const { flipping, flipDirection, endFlip } = usePageTransition();
+  const { isExiting: flipping, exitDirection: flipDirection } = usePageTransition();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -120,8 +120,6 @@ export function FlipTransition({ appRef }: { appRef: React.RefObject<HTMLElement
 
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      // Fallback: skip visual, just end
-      endFlip();
     };
 
     img.src = url;
@@ -174,7 +172,6 @@ export function FlipTransition({ appRef }: { appRef: React.RefObject<HTMLElement
           mat.needsUpdate = true;
           phaseRef.current = "idle";
           renderer.render(scene, cam);
-          endFlip();
           return;
         }
       }
