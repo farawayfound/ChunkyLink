@@ -24,8 +24,10 @@ services:
     # Parallel slots multiply KV RAM; 1 keeps peak usage low on 32GB hosts (see Ollama docs / issues).
     environment:
       - OLLAMA_NUM_PARALLEL=1
-    # Give the container a high explicit RAM budget so Ollama's cgroup "available" is not stuck ~13GiB.
-    mem_limit: 28g
+    # Give the container a high explicit RAM budget so Ollama's cgroup "available"
+    # accounts for reclaimable file-cache (~9-10 GiB from model files on disk).
+    # 30g on a 32GB host leaves ~2 GiB for the OS kernel + other services.
+    mem_limit: 30g
     restart: unless-stopped
 
 volumes:
