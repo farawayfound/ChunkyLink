@@ -31,7 +31,11 @@ async def scrape_url(url: str, timeout: int = 30) -> ScrapedPage:
             result = await crawler.arun(url=url, config=config)
 
         if result.success:
-            content = result.markdown_v2.raw_markdown if hasattr(result, "markdown_v2") else result.markdown
+            if hasattr(result, "markdown_v2") and result.markdown_v2:
+                md = result.markdown_v2
+                content = (md.fit_markdown or md.raw_markdown) if hasattr(md, "fit_markdown") else md.raw_markdown
+            else:
+                content = result.markdown or ""
             return ScrapedPage(
                 url=url,
                 title=result.metadata.get("title", "") if result.metadata else "",

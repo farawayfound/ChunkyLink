@@ -22,12 +22,6 @@ class JobCancelledError(Exception):
     """Raised when the API sets a cooperative-cancel flag (Redis) mid-run."""
 
 
-# Pre-summarize individual sources when there are more than this many.
-# Each source is condensed to ~300 words before the final synthesis call,
-# which keeps the prompt manageable and prevents read-timeouts.
-_MAP_REDUCE_THRESHOLD = 4
-
-
 async def run_pipeline(
     job,
     status_cb: StatusCallback | None = None,
@@ -38,7 +32,7 @@ async def run_pipeline(
     Returns dict with keys: markdown, sources, summary.
 
     Model/context config is read from ``config.OLLAMA_MODEL`` /
-    ``config.OLLAMA_NUM_CTX`` (default 64k / 65536; override via ``OLLAMA_NUM_CTX`` in ``.env.nanobot``).
+    ``config.OLLAMA_NUM_CTX`` (default 24k / 24576; override via ``OLLAMA_NUM_CTX`` in ``.env.nanobot``).
     """
 
     async def _status(status: str, msg: str, progress: float = 0.0, sources: int = 0):
@@ -110,47 +104,6 @@ async def run_pipeline(
         })
 
     await _abort_if_cancelled()
-
-    # Map-reduce: pre-summarize each source individually when there are many.
-    # This keeps the final synthesis prompt small and avoids LLM read-timeouts.
-    if len(sources_for_llm) > _MAP_REDUCE_THRESHOLD:
-        await _status(
-            "synthesizing",
-            f"Pre-summarizing {len(sources_for_llm)} sources...",
-            0.62, len(sources_for_llm),
-        )
-        condensed = []
-        for i, src in enumerate(sources_for_llm):
-            await _abort_if_cancelled()
-            summarize_prompt = (
-                f"Summarize the following article in 250–300 words, preserving all key "
-                f"facts, statistics, dates, and claims. Output only the summary.\n\n"
-                f"Title: {src['title']}\n\n{src['content'][:3000]}"
-            )
-            t0 = time.perf_counter()
-            try:
-                condensed_text = await generate(
-                    summarize_prompt,
-                    temperature=0.2,
-                    num_predict=400,
-                    model=llm_model,
-                    num_ctx=8192,
-                )
-                elapsed = time.perf_counter() - t0
-                log.info(
-                    "source %d/%d pre-summarized in %.1fs: %d → %d chars",
-                    i + 1, len(sources_for_llm), elapsed,
-                    len(src["content"]), len(condensed_text),
-                )
-                condensed.append({**src, "content": condensed_text})
-            except Exception as exc:
-                elapsed = time.perf_counter() - t0
-                log.warning(
-                    "source %d/%d pre-summary failed after %.1fs (%s), using raw content",
-                    i + 1, len(sources_for_llm), elapsed, exc,
-                )
-                condensed.append(src)
-        sources_for_llm = condensed
 
     output_format = getattr(job, "output_format", "default") or "default"
     synthesis_num_predict = 1800 + (job.max_sources * 500)

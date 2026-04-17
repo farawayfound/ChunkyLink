@@ -222,6 +222,32 @@ Focus on different angles of the topic to get diverse results.
 """
 
 
+def _trim_to_body(content: str, max_chars: int) -> str:
+    """Skip leading boilerplate lines and return up to max_chars of body text.
+
+    Crawl4AI fit_markdown already strips most nav, but raw_markdown and the
+    fallback scraper can still lead with breadcrumbs, short link lists, and
+    header lines before the article body.  We skip lines that look like
+    navigation (short, or starting with markdown link/list/heading markers)
+    until we hit the first line that looks like prose (>80 chars, not a
+    list/link/heading opener).  If no such line is found we fall back to the
+    full content so we never silently discard everything.
+    """
+    lines = content.splitlines()
+    start = 0
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if len(s) > 80 and not s.startswith(("[", "-", "*", "#", "|", "!")):
+            start = i
+            break
+    body = "\n".join(lines[start:])
+    if not body.strip():
+        body = content  # fallback: nothing matched, use everything
+    if len(body) > max_chars:
+        return body[:max_chars] + "\n[...truncated]"
+    return body
+
+
 def build_synthesis_prompt(
     prompt: str,
     sources: list[dict],
@@ -234,9 +260,7 @@ def build_synthesis_prompt(
     for i, src in enumerate(sources, 1):
         title = src.get("title", "Untitled")
         url = src.get("url", "")
-        content = src.get("content", "")
-        if len(content) > 2800:
-            content = content[:2800] + "\n[...truncated]"
+        content = _trim_to_body(src.get("content", ""), max_chars=2800)
         blocks.append(f"### [Source {i}] {title}\nURL: {url}\n\n{content}")
 
     sources_block = "\n\n".join(blocks)
