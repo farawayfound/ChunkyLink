@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Awaitable, Callable, Coroutine, Optional
 
 import config
@@ -19,6 +20,12 @@ CancelCheck = Optional[Callable[[], Awaitable[bool]]]
 
 class JobCancelledError(Exception):
     """Raised when the API sets a cooperative-cancel flag (Redis) mid-run."""
+
+
+# Pre-summarize individual sources when there are more than this many.
+# Each source is condensed to ~300 words before the final synthesis call,
+# which keeps the prompt manageable and prevents read-timeouts.
+_MAP_REDUCE_THRESHOLD = 4
 
 
 async def run_pipeline(
@@ -103,12 +110,61 @@ async def run_pipeline(
         })
 
     await _abort_if_cancelled()
+
+    # Map-reduce: pre-summarize each source individually when there are many.
+    # This keeps the final synthesis prompt small and avoids LLM read-timeouts.
+    if len(sources_for_llm) > _MAP_REDUCE_THRESHOLD:
+        await _status(
+            "synthesizing",
+            f"Pre-summarizing {len(sources_for_llm)} sources...",
+            0.62, len(sources_for_llm),
+        )
+        condensed = []
+        for i, src in enumerate(sources_for_llm):
+            await _abort_if_cancelled()
+            summarize_prompt = (
+                f"Summarize the following article in 250–300 words, preserving all key "
+                f"facts, statistics, dates, and claims. Output only the summary.\n\n"
+                f"Title: {src['title']}\n\n{src['content'][:3000]}"
+            )
+            t0 = time.perf_counter()
+            try:
+                condensed_text = await generate(
+                    summarize_prompt,
+                    temperature=0.2,
+                    num_predict=400,
+                    model=llm_model,
+                    num_ctx=8192,
+                )
+                elapsed = time.perf_counter() - t0
+                log.info(
+                    "source %d/%d pre-summarized in %.1fs: %d → %d chars",
+                    i + 1, len(sources_for_llm), elapsed,
+                    len(src["content"]), len(condensed_text),
+                )
+                condensed.append({**src, "content": condensed_text})
+            except Exception as exc:
+                elapsed = time.perf_counter() - t0
+                log.warning(
+                    "source %d/%d pre-summary failed after %.1fs (%s), using raw content",
+                    i + 1, len(sources_for_llm), elapsed, exc,
+                )
+                condensed.append(src)
+        sources_for_llm = condensed
+
     output_format = getattr(job, "output_format", "default") or "default"
     synthesis_num_predict = 1800 + (job.max_sources * 500)
     user_prompt = build_synthesis_prompt(
         job.prompt, sources_for_llm, output_format=output_format,
         num_predict=synthesis_num_predict,
     )
+
+    log.info(
+        "synthesis starting: %d sources, prompt=%d chars, num_predict=%d, model=%s",
+        len(sources_for_llm), len(user_prompt), synthesis_num_predict, llm_model,
+    )
+    t_synth = time.perf_counter()
+    await _status("synthesizing", "Synthesizing report...", 0.75, len(sources_for_llm))
     markdown = await generate(
         user_prompt,
         system=system_for_format(output_format),
@@ -116,6 +172,11 @@ async def run_pipeline(
         num_predict=synthesis_num_predict,
         model=llm_model,
         num_ctx=llm_num_ctx,
+    )
+    synth_elapsed = time.perf_counter() - t_synth
+    log.info(
+        "synthesis complete in %.1fs: %d chars output",
+        synth_elapsed, len(markdown),
     )
 
     await _abort_if_cancelled()
@@ -126,6 +187,7 @@ async def run_pipeline(
     await _status("synthesizing", "Generating summary...", 0.9, len(good_pages))
 
     await _abort_if_cancelled()
+    t_sum = time.perf_counter()
     summary = await generate(
         f"Summarize in 2-3 sentences:\n\n{markdown[:3000]}",
         temperature=0.2,
@@ -133,6 +195,7 @@ async def run_pipeline(
         model=llm_model,
         num_ctx=4096,
     )
+    log.info("summary generated in %.1fs", time.perf_counter() - t_sum)
 
     source_list = [
         {"url": s["url"], "title": s["title"]}

@@ -235,8 +235,8 @@ def build_synthesis_prompt(
         title = src.get("title", "Untitled")
         url = src.get("url", "")
         content = src.get("content", "")
-        if len(content) > 3800:
-            content = content[:3800] + "\n[...truncated]"
+        if len(content) > 2800:
+            content = content[:2800] + "\n[...truncated]"
         blocks.append(f"### [Source {i}] {title}\nURL: {url}\n\n{content}")
 
     sources_block = "\n\n".join(blocks)
