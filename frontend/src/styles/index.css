@@ -2548,7 +2548,6 @@ button.chip:hover { border-color: var(--primary); }
    pages keep their existing var(--bg-card) look and stack on
    top of these panels. */
 
-.chat-page,
 .about-page,
 .resume-page,
 .admin-page,
@@ -2562,10 +2561,34 @@ button.chip:hover { border-color: var(--primary); }
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
 }
 
-/* Chat page has a fixed height; subtract the new vertical
-   margin so it still fits inside .app-main without scrolling. */
-.chat-page {
-  height: calc(100vh - 56px - 32px);
+/* Ask Me Anything — no outer panel so the carousel flight
+   animation can fly across the full viewport. Only the status
+   indicators and the final assistant response get their own
+   readability panels (see below). User question cards reuse
+   the suggestion-card gradient and are already legible. */
+.ama-progress-inner {
+  margin-top: 8px;
+  padding: 12px 14px;
+  background: rgba(10, 10, 14, 0.92);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid rgba(52, 44, 26, 0.55);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+/* Final generated response — wrap only the assistant message
+   body so it is readable over the shader. User messages in AMA
+   are rendered via .ama-q-card and keep their suggestion-card
+   style unchanged. */
+.chat-message.assistant .message-content {
+  padding: 14px 16px;
+  background: rgba(10, 10, 14, 0.92);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid rgba(52, 44, 26, 0.55);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
 }
 
 /* Full-width split-pane pages — darken every major section.
@@ -2620,15 +2643,11 @@ button.chip:hover { border-color: var(--primary); }
 /* Tighten margins on narrow viewports so the dark panels do
    not waste horizontal space. */
 @media (max-width: 768px) {
-  .chat-page,
   .about-page,
   .resume-page,
   .admin-page,
   .library-page {
     margin: 8px 6px;
     border-radius: 10px;
-  }
-  .chat-page {
-    height: calc(100vh - 56px - 16px);
   }
 }
