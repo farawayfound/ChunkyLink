@@ -13,26 +13,30 @@ export function ShaderBackground() {
       preserveDrawingBuffer: false,
     });
     if (!gl) return;
-    gl.getExtension("OES_standard_derivatives");
+
+    // Narrowed aliases — TS does not propagate `canvas`/`gl` narrowing into nested callbacks.
+    const c = canvas;
+    const g = gl;
+    g.getExtension("OES_standard_derivatives");
 
     function compile(src: string, type: number) {
-      const s = gl!.createShader(type)!;
-      gl!.shaderSource(s, src);
-      gl!.compileShader(s);
-      if (!gl!.getShaderParameter(s, gl!.COMPILE_STATUS)) {
-        console.error(gl!.getShaderInfoLog(s));
+      const s = g.createShader(type)!;
+      g.shaderSource(s, src);
+      g.compileShader(s);
+      if (!g.getShaderParameter(s, g.COMPILE_STATUS)) {
+        console.error(g.getShaderInfoLog(s));
         throw new Error("shader compile");
       }
       return s;
     }
 
     function makeProgram(vs: string, fs: string) {
-      const p = gl!.createProgram()!;
-      gl!.attachShader(p, compile(vs, gl!.VERTEX_SHADER));
-      gl!.attachShader(p, compile(fs, gl!.FRAGMENT_SHADER));
-      gl!.linkProgram(p);
-      if (!gl!.getProgramParameter(p, gl!.LINK_STATUS)) {
-        console.error(gl!.getProgramInfoLog(p));
+      const p = g.createProgram()!;
+      g.attachShader(p, compile(vs, g.VERTEX_SHADER));
+      g.attachShader(p, compile(fs, g.FRAGMENT_SHADER));
+      g.linkProgram(p);
+      if (!g.getProgramParameter(p, g.LINK_STATUS)) {
+        console.error(g.getProgramInfoLog(p));
         throw new Error("link fail");
       }
       return p;
@@ -148,23 +152,23 @@ void main() {
 }`;
 
     const prog = makeProgram(VS, FS);
-    gl.useProgram(prog);
+    g.useProgram(prog);
 
-    const aPos      = gl.getAttribLocation(prog, "aPos");
-    const uRes      = gl.getUniformLocation(prog, "uRes");
-    const uMouse    = gl.getUniformLocation(prog, "uMouse");
-    const uMouseVel = gl.getUniformLocation(prog, "uMouseVel");
-    const uTime     = gl.getUniformLocation(prog, "uTime");
-    const uClick    = gl.getUniformLocation(prog, "uClick");
-    const uClickPos = gl.getUniformLocation(prog, "uClickPos");
-    const uClickAge = gl.getUniformLocation(prog, "uClickAge");
+    const aPos      = g.getAttribLocation(prog, "aPos");
+    const uRes      = g.getUniformLocation(prog, "uRes");
+    const uMouse    = g.getUniformLocation(prog, "uMouse");
+    const uMouseVel = g.getUniformLocation(prog, "uMouseVel");
+    const uTime     = g.getUniformLocation(prog, "uTime");
+    const uClick    = g.getUniformLocation(prog, "uClick");
+    const uClickPos = g.getUniformLocation(prog, "uClickPos");
+    const uClickAge = g.getUniformLocation(prog, "uClickAge");
 
-    const quad = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
+    const quad = g.createBuffer();
+    g.bindBuffer(g.ARRAY_BUFFER, quad);
+    g.bufferData(
+      g.ARRAY_BUFFER,
       new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
-      gl.STATIC_DRAW
+      g.STATIC_DRAW
     );
 
     const mouse = { x: 0.5, y: 0.5, px: 0.5, py: 0.5, vx: 0, vy: 0 };
@@ -172,9 +176,9 @@ void main() {
 
     function resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width  = Math.floor(window.innerWidth  * dpr);
-      canvas.height = Math.floor(window.innerHeight * dpr);
-      gl.viewport(0, 0, canvas.width, canvas.height);
+      c.width  = Math.floor(window.innerWidth  * dpr);
+      c.height = Math.floor(window.innerHeight * dpr);
+      g.viewport(0, 0, c.width, c.height);
     }
 
     const onMove  = (e: PointerEvent) => {
@@ -210,20 +214,20 @@ void main() {
       if (click.amount < 0.002) click.amount = 0;
       click.age += dt;
 
-      gl.useProgram(prog);
-      gl.bindBuffer(gl.ARRAY_BUFFER, quad);
-      gl.enableVertexAttribArray(aPos);
-      gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+      g.useProgram(prog);
+      g.bindBuffer(g.ARRAY_BUFFER, quad);
+      g.enableVertexAttribArray(aPos);
+      g.vertexAttribPointer(aPos, 2, g.FLOAT, false, 0, 0);
 
-      gl.uniform2f(uRes,      canvas.width, canvas.height);
-      gl.uniform2f(uMouse,    mouse.px, mouse.py);
-      gl.uniform2f(uMouseVel, mouse.vx * 8.0, mouse.vy * 8.0);
-      gl.uniform1f(uTime,     (now - start) / 1000);
-      gl.uniform1f(uClick,    click.amount);
-      gl.uniform2f(uClickPos, click.pos.x, click.pos.y);
-      gl.uniform1f(uClickAge, click.age);
+      g.uniform2f(uRes,      c.width, c.height);
+      g.uniform2f(uMouse,    mouse.px, mouse.py);
+      g.uniform2f(uMouseVel, mouse.vx * 8.0, mouse.vy * 8.0);
+      g.uniform1f(uTime,     (now - start) / 1000);
+      g.uniform1f(uClick,    click.amount);
+      g.uniform2f(uClickPos, click.pos.x, click.pos.y);
+      g.uniform1f(uClickAge, click.age);
 
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      g.drawArrays(g.TRIANGLES, 0, 6);
       rafId = requestAnimationFrame(frame);
     }
     rafId = requestAnimationFrame(frame);
@@ -233,7 +237,7 @@ void main() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerdown", onDown);
       window.removeEventListener("resize", onResize);
-      gl.deleteProgram(prog);
+      g.deleteProgram(prog);
     };
   }, []);
 
