@@ -2539,3 +2539,96 @@ button.chip:hover { border-color: var(--primary); }
   .explorer-facets { border-right: none; border-bottom: 1px solid var(--border); padding-right: 0; padding-bottom: 8px; }
   .nav-links { display: none; }
 }
+
+/* ── Readability overlays for shader background ─────────────
+   The WebGL shader sits at z-index: -1 behind every page.
+   These rules give each top-level page wrapper and split-pane
+   section an opaque dark backdrop so text, fields, and controls
+   remain legible over the animation. Individual cards inside
+   pages keep their existing var(--bg-card) look and stack on
+   top of these panels. */
+
+.chat-page,
+.about-page,
+.resume-page,
+.admin-page,
+.library-page {
+  background: rgba(10, 10, 14, 0.92);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid rgba(52, 44, 26, 0.55);
+  border-radius: 14px;
+  margin: 16px auto;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+}
+
+/* Chat page has a fixed height; subtract the new vertical
+   margin so it still fits inside .app-main without scrolling. */
+.chat-page {
+  height: calc(100vh - 56px - 32px);
+}
+
+/* Full-width split-pane pages — darken every major section.
+   .documents-config-sidebar already sets background: var(--bg),
+   so we leave it alone. */
+.documents-sidebar,
+.documents-chat,
+.workspace-sidebar,
+.workspace-main {
+  background: rgba(10, 10, 14, 0.92);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+}
+
+/* Reinforce config sidebar opacity — the existing var(--bg) is
+   already opaque hex, but this guarantees consistency. */
+.documents-config-sidebar {
+  background: rgba(10, 10, 14, 0.92);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+}
+
+/* Login card / modals — fully opaque with stronger blur for
+   emphasis since they are focal points. */
+.login-card {
+  background: rgba(24, 20, 14, 0.97);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.modal-card,
+.modal {
+  background: rgba(24, 20, 14, 0.98);
+  backdrop-filter: blur(22px) saturate(1.2);
+  -webkit-backdrop-filter: blur(22px) saturate(1.2);
+}
+
+/* Suggestion carousel + AMA question cards — keep the gradient
+   look but ensure both stops are fully opaque over the shader. */
+.suggestion-carousel-card,
+.ama-q-card,
+.ama-prompt-flight {
+  background: linear-gradient(
+    145deg,
+    rgba(24, 20, 14, 0.98) 0%,
+    rgba(34, 28, 18, 0.98) 100%
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Tighten margins on narrow viewports so the dark panels do
+   not waste horizontal space. */
+@media (max-width: 768px) {
+  .chat-page,
+  .about-page,
+  .resume-page,
+  .admin-page,
+  .library-page {
+    margin: 8px 6px;
+    border-radius: 10px;
+  }
+  .chat-page {
+    height: calc(100vh - 56px - 16px);
+  }
+}
