@@ -328,7 +328,7 @@ export function Workspace() {
                 {messages.map((msg, i) => (
                   <ChatMessage key={i} message={msg} />
                 ))}
-                {streaming && <ChatProgress phase={phase} />}
+                {streaming && <ChatProgress phase={phase} loaderVariant="pathMorph" />}
                 <div ref={bottomRef} />
               </div>
               <div className="chat-footer">

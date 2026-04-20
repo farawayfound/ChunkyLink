@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import mermaid from "mermaid";
 import { useLibrary, type LibraryTask } from "../hooks/useLibrary";
 import { getLibraryTask, getIndexEmailStatus, getLibraryConfig } from "../api/client";
+import { LibraryLobeLoader, libraryStatusUsesLobeLoader } from "../components/LibraryLobeLoader";
 
 type View = "list" | "detail";
 
@@ -526,7 +527,9 @@ export function Library() {
                   className={`library-status ${isActive(t.status) ? "active" : ""}`}
                   style={{ color: STATUS_COLORS[t.status] || "var(--text-muted)" }}
                 >
-                  {isActive(t.status) && <span className="library-status-dot" />}
+                  {libraryStatusUsesLobeLoader(t.status) && (
+                    <LibraryLobeLoader status={t.status} />
+                  )}
                   {STATUS_LABELS[t.status] || t.status}
                 </span>
               </div>
@@ -640,6 +643,9 @@ export function Library() {
             className="library-status"
             style={{ color: STATUS_COLORS[detail.status] || "var(--text-muted)" }}
           >
+            {libraryStatusUsesLobeLoader(detail.status) && (
+              <LibraryLobeLoader status={detail.status} />
+            )}
             {STATUS_LABELS[detail.status] || detail.status}
           </span>
         )}
