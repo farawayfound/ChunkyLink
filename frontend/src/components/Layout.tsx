@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { User } from "../types";
 import { RequestAccessModal } from "./RequestAccessModal";
 import { BackgroundAudio } from "./BackgroundAudio";
+import { ShaderBackground } from "./ShaderBackground";
 import { usePageTransition } from "./PageTransitionContext";
 
 interface Props {
@@ -49,6 +50,7 @@ export function Layout({ user, onLogout, children }: Props) {
 
   return (
     <div className="app-layout">
+      <ShaderBackground />
       <BackgroundAudio />
       <header className="app-header">
         <div className="header-left">
