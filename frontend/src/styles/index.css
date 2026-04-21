@@ -214,6 +214,12 @@ html {
   flex-shrink: 0;
 }
 .chat-header h2 { font-size: 18px; }
+.chat-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
 .chat-messages {
   flex: 1;
@@ -1619,9 +1625,32 @@ html {
   margin-bottom: 0;
 }
 
-.resume-hero__download.tab {
-  text-decoration: none;
+.resume-hero__download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   align-self: center;
+  text-decoration: none;
+  background: var(--bg-card);
+  border: 3px solid var(--primary);
+  border-radius: 12px;
+  padding: 0.85rem 1.25rem;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.resume-hero__download:hover {
+  border-color: var(--primary-hover);
+  background: var(--bg-hover);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+}
+
+.resume-hero__download:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .resume-hero__name {

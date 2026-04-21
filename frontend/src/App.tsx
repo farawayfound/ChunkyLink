@@ -10,11 +10,13 @@ import { About } from "./pages/About";
 import { MyResume } from "./pages/MyResume";
 import { Library } from "./pages/Library";
 import { PageTransitionProvider } from "./components/PageTransitionContext";
+import { UISettingsProvider } from "./components/UISettingsContext";
 
 export default function App() {
   const { user, loading, githubEnabled, loginInvite, logout } = useAuth();
 
   return (
+    <UISettingsProvider>
     <PageTransitionProvider>
       <BrowserRouter>
         <Layout user={user} onLogout={logout}>
@@ -59,5 +61,6 @@ export default function App() {
         </Layout>
       </BrowserRouter>
     </PageTransitionProvider>
+    </UISettingsProvider>
   );
 }

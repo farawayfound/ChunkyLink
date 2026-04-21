@@ -71,14 +71,14 @@ float fbm(vec2 p) {
   return v;
 }
 
-const vec3 INK       = vec3(0.045, 0.040, 0.032);
-const vec3 INK_DEEP  = vec3(0.020, 0.017, 0.012);
-const vec3 SOIL_WARM = vec3(0.120, 0.095, 0.060);
-const vec3 PARCHMENT = vec3(0.929, 0.898, 0.816);
-const vec3 TAN       = vec3(0.604, 0.557, 0.463);
-const vec3 GOLD      = vec3(0.784, 0.604, 0.235);
-const vec3 GOLD_DEEP = vec3(0.690, 0.518, 0.157);
-const vec3 SAGE      = vec3(0.353, 0.620, 0.322);
+const vec3 INK       = vec3(0.032, 0.028, 0.022);
+const vec3 INK_DEEP  = vec3(0.014, 0.012, 0.009);
+const vec3 SOIL_WARM = vec3(0.080, 0.064, 0.042);
+const vec3 PARCHMENT = vec3(0.545, 0.525, 0.480);
+const vec3 TAN       = vec3(0.360, 0.333, 0.278);
+const vec3 GOLD      = vec3(0.470, 0.365, 0.150);
+const vec3 GOLD_DEEP = vec3(0.405, 0.305, 0.095);
+const vec3 SAGE      = vec3(0.215, 0.370, 0.195);
 const float PITCH = 0.22;
 const float PEAK_HEIGHT = 0.55;
 
@@ -140,13 +140,14 @@ void main() {
   lineCol = mix(lineCol, GOLD, smoothstep(0.45, 0.85, h));
   lineCol = mix(lineCol, PARCHMENT, isIndex * 0.25);
   float craterDepth = max(0.0, -crater(uv, cp));
-  lineCol = mix(lineCol, SAGE, min(craterDepth * 2.0, 0.5));
+  lineCol = mix(lineCol, SAGE, min(craterDepth * 1.2, 0.30));
 
-  vec3 col = mix(bg, lineCol, contour * mix(0.28, 0.42, isIndex));
-  col += smoothstep(0.45, 0.80, peakAt(uv, m, peakAmp) / peakAmp) * GOLD_DEEP * 0.18;
+  vec3 col = mix(bg, lineCol, contour * mix(0.17, 0.26, isIndex));
+  col += smoothstep(0.45, 0.80, peakAt(uv, m, peakAmp) / peakAmp) * GOLD_DEEP * 0.07;
   col *= 1.0 - craterDepth * 0.9;
   col *= smoothstep(1.85, 0.25, length(uv));
-  col += (hash12(gl_FragCoord.xy + uTime) - 0.5) * 0.010;
+  col += (hash12(gl_FragCoord.xy + uTime) - 0.5) * 0.008;
+  col *= 0.62;
 
   gl_FragColor = vec4(col, 1.0);
 }`;

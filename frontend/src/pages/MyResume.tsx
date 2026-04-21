@@ -262,7 +262,7 @@ export function MyResume() {
           <div className="resume-hero__headline">
             <h1 className="resume-hero__name">David Chui</h1>
             <a
-              className="tab resume-hero__download"
+              className="resume-hero__download"
               href={RESUME_PDF_HREF}
               download={RESUME_PDF_DOWNLOAD_AS}
               aria-label="Download résumé as PDF"

@@ -5,6 +5,7 @@ import { RequestAccessModal } from "./RequestAccessModal";
 import { BackgroundAudio } from "./BackgroundAudio";
 import { ShaderBackground } from "./ShaderBackground";
 import { usePageTransition } from "./PageTransitionContext";
+import { useUISettings } from "./UISettingsContext";
 
 interface Props {
   user: User | null;
@@ -16,6 +17,7 @@ export function Layout({ user, onLogout, children }: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const { isExiting, exitDirection, startExit } = usePageTransition();
+  const { staticBackground } = useUISettings();
   const [showAccessModal, setShowAccessModal] = useState(false);
 
   const navItems = [
@@ -50,7 +52,7 @@ export function Layout({ user, onLogout, children }: Props) {
 
   return (
     <div className="app-layout">
-      <ShaderBackground />
+      {!staticBackground && <ShaderBackground />}
       <BackgroundAudio />
       <header className="app-header">
         <div className="header-left">

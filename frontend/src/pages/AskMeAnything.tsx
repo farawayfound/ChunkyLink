@@ -9,6 +9,7 @@ import type { SuggestionCarouselVisualMode } from "../components/SuggestionCarou
 import { getChatSuggestions } from "../api/client";
 import type { ChatMessage } from "../types";
 import { usePageTransition } from "../components/PageTransitionContext";
+import { useUISettings } from "../components/UISettingsContext";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -46,6 +47,7 @@ export function AskMeAnything() {
   const [rateLimited, setRateLimited] = useState(false);
 
   const { isExiting } = usePageTransition();
+  const { musicMuted, toggleMusicMuted, staticBackground, toggleStaticBackground } = useUISettings();
   const [pageReady, setPageReady] = useState(false);
   const [carouselVisual, setCarouselVisual] = useState<"intro" | "idle">("intro");
   const [carouselSession, setCarouselSession] = useState(0);
@@ -306,7 +308,31 @@ export function AskMeAnything() {
   return (
     <div className="chat-page">
       <div className="chat-header">
-        <h2>Ask Me Anything</h2>
+        <div className="chat-header-title">
+          <h2>Ask Me Anything</h2>
+          <button
+            type="button"
+            onClick={toggleMusicMuted}
+            className="btn btn-sm"
+            aria-pressed={musicMuted}
+            title={musicMuted ? "Unmute background music" : "Mute background music"}
+          >
+            {musicMuted ? "Unmute" : "Mute"}
+          </button>
+          <button
+            type="button"
+            onClick={toggleStaticBackground}
+            className="btn btn-sm"
+            aria-pressed={staticBackground}
+            title={
+              staticBackground
+                ? "Switch to animated background"
+                : "Switch to static background"
+            }
+          >
+            Background: {staticBackground ? "Static" : "Dynamic"}
+          </button>
+        </div>
         {messages.length > 0 && (
           <button type="button" onClick={handleClear} className="btn btn-sm">
             Clear
