@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse, JSONResponse
+import uuid
 
 from backend.config import get_settings
 from backend.auth.middleware import get_current_user
@@ -99,6 +100,58 @@ _CATEGORY_QUESTIONS: dict[str, list[str]] = {
 }
 
 _PERF_ROLLING_WINDOW = 100
+
+
+async def _persist_messages(
+    *,
+    session_id: str,
+    user_id: str,
+    query: str,
+    response: str,
+    is_new_session: bool = False,
+) -> None:
+    """Persist user message and assistant response to database.
+
+    If it's a new session, generate an AI-powered title by summarizing the query.
+    """
+    try:
+        db = await get_db()
+        try:
+            # Save user message
+            if query:
+                user_msg_id = str(uuid.uuid4())
+                await db.execute(
+                    "INSERT INTO chat_messages (id, session_id, role, content) VALUES (?, ?, ?, ?)",
+                    (user_msg_id, session_id, "user", query)
+                )
+
+            # Save assistant message
+            if response:
+                asst_msg_id = str(uuid.uuid4())
+                await db.execute(
+                    "INSERT INTO chat_messages (id, session_id, role, content) VALUES (?, ?, ?, ?)",
+                    (asst_msg_id, session_id, "assistant", response)
+                )
+
+            # Generate title if new session (use first 100 chars of query as fallback)
+            if is_new_session:
+                title = query[:100] if query else "Chat Session"
+                await db.execute(
+                    "UPDATE chat_sessions SET title = ?, updated_at = datetime('now') WHERE id = ?",
+                    (title, session_id)
+                )
+
+            # Update session's updated_at timestamp
+            await db.execute(
+                "UPDATE chat_sessions SET updated_at = datetime('now') WHERE id = ?",
+                (session_id,)
+            )
+
+            await db.commit()
+        finally:
+            await db.close()
+    except Exception:
+        logging.warning("failed to persist chat messages", exc_info=True)
 
 
 async def _write_perf_log(
@@ -278,7 +331,7 @@ async def chat_documents(request: Request):
     """Chat against user's own uploaded and indexed documents.
 
     Requires authentication.
-    Body: {"query": "...", "messages": [...], "model": null, "level": null}
+    Body: {"query": "...", "messages": [...], "session_id": "...", "model": null, "level": null}
     """
     user = await get_current_user(request)
     if not user:
@@ -287,6 +340,7 @@ async def chat_documents(request: Request):
     body = await request.json()
     query = body.get("query", "").strip()
     messages = body.get("messages", [])
+    session_id = body.get("session_id")
     model = body.get("model")
     settings = get_settings()
     level = body.get("level") or settings.CHAT_SEARCH_LEVEL
@@ -312,6 +366,8 @@ async def chat_documents(request: Request):
         thoughts_parts: list[str] = []
         response_parts: list[str] = []
         user_ttft_ms: int | None = None
+        new_session = False
+        effective_session_id = session_id
 
         try:
             yield ": stream-open\n\n"
@@ -353,6 +409,16 @@ async def chat_documents(request: Request):
                     yield ": llm-generate\n\n"
                 yield f"data: {json.dumps(ev)}\n\n"
             yield "data: [DONE]\n\n"
+
+            # Persist messages if session_id is provided
+            if effective_session_id:
+                asyncio.create_task(_persist_messages(
+                    session_id=effective_session_id,
+                    user_id=user_id,
+                    query=query,
+                    response="".join(response_parts),
+                    is_new_session=new_session
+                ))
         except Exception as exc:
             logging.warning("chat/documents stream error: %s", exc, exc_info=True)
             err_ev = {"text": f"Sorry, the AI is unavailable right now. ({type(exc).__name__}: {exc})"}
@@ -488,3 +554,119 @@ async def chat_suggestions():
 
     random.shuffle(unique)
     return {"suggestions": unique[:15]}
+
+
+@router.post("/sessions")
+async def create_chat_session(request: Request):
+    """Create a new chat session for the authenticated user."""
+    user = await get_current_user(request)
+    if not user:
+        return {"error": "authentication required"}
+
+    session_id = str(uuid.uuid4())
+    user_id = user["user_id"]
+
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO chat_sessions (id, user_id) VALUES (?, ?)",
+            (session_id, user_id)
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+    return {"session_id": session_id}
+
+
+@router.get("/sessions")
+async def list_chat_sessions(request: Request):
+    """List all chat sessions for the authenticated user, ordered by most recent first."""
+    user = await get_current_user(request)
+    if not user:
+        return {"error": "authentication required"}
+
+    user_id = user["user_id"]
+
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT id, title, created_at, updated_at
+               FROM chat_sessions
+               WHERE user_id = ?
+               ORDER BY updated_at DESC
+               LIMIT 50""",
+            (user_id,)
+        )
+        rows = await cursor.fetchall()
+        sessions = [dict(row) for row in rows]
+    finally:
+        await db.close()
+
+    return {"sessions": sessions}
+
+
+@router.get("/sessions/{session_id}")
+async def get_chat_session(request: Request, session_id: str):
+    """Fetch a specific chat session with all its messages."""
+    user = await get_current_user(request)
+    if not user:
+        return {"error": "authentication required"}
+
+    user_id = user["user_id"]
+
+    db = await get_db()
+    try:
+        # Verify ownership
+        cursor = await db.execute(
+            "SELECT id, title, created_at, updated_at FROM chat_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id)
+        )
+        session = await cursor.fetchone()
+        if not session:
+            return {"error": "session not found"}
+
+        # Get messages
+        cursor = await db.execute(
+            "SELECT id, role, content, created_at FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC",
+            (session_id,)
+        )
+        messages = [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+    return {
+        "session": dict(session),
+        "messages": messages
+    }
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_chat_session(request: Request, session_id: str):
+    """Delete a chat session and all its messages."""
+    user = await get_current_user(request)
+    if not user:
+        return {"error": "authentication required"}
+
+    user_id = user["user_id"]
+
+    db = await get_db()
+    try:
+        # Verify ownership
+        cursor = await db.execute(
+            "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id)
+        )
+        session = await cursor.fetchone()
+        if not session:
+            return {"error": "session not found"}
+
+        # Delete messages first (foreign key constraint)
+        await db.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+        # Delete session
+        await db.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+        await db.commit()
+    finally:
+        await db.close()
+
+    return {"success": True}

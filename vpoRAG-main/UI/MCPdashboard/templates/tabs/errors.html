@@ -1,0 +1,31 @@
+<div id="errors-tab" class="tab-content">
+    <div class="panel">
+        <div class="filter-bar">
+            <label class="filter-label">Rows per page:
+                <select id="error-page-size" onchange="_errorPager.setPageSize(+this.value)">
+                    <option value="10">10</option>
+                    <option value="20" selected>20</option>
+                    <option value="30">30</option>
+                    <option value="50">50</option>
+                </select>
+            </label>
+            <span id="error-count" class="muted"></span>
+        </div>
+        <table class="data-table" id="error-table">
+            <thead>
+                <tr>
+                    <th data-sort-key="timestamp">Timestamp</th>
+                    <th data-sort-key="tool">Tool</th>
+                    <th data-sort-key="error_type">Error Type</th>
+                    <th data-sort-key="error">Message</th>
+                    <th data-sort-key="user_id">User</th>
+                    <th data-sort-key="terms">Terms</th>
+                    <th data-sort-key="duration_ms">Duration</th>
+                </tr>
+            </thead>
+            <tbody id="error-tbody"></tbody>
+        </table>
+        <div id="error-toolbar"></div>
+        <div class="pagination" id="error-pagination"></div>
+    </div>
+</div>

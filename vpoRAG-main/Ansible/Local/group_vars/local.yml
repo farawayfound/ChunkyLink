@@ -1,0 +1,39 @@
+# ── Paths ─────────────────────────────────────────────────────────────────────
+# Absolute path to the vpo_rag repo root on this machine.
+# Override via: ansible-playbook site.yml -e "repo_root=C:\path\to\vpo_rag"
+repo_root: "C:\\path\\to\\vpo_rag"
+
+# Where to create the virtual environment.
+venv_path: "{{ repo_root }}\\.venv"
+
+# Python executable to use when creating the venv.
+python_bin: "python"
+
+# ── spaCy ─────────────────────────────────────────────────────────────────────
+spacy_model: "en_core_web_md"
+
+# ── Indexer config values (written to indexers/config.py) ────────────────────
+# Source documents directory — set to your local docs folder.
+indexer_src_dir: "C:\\path\\to\\your\\documents"
+
+# Output directory — defaults to JSON/ inside the repo.
+indexer_out_dir: "{{ repo_root }}\\JSON"
+
+# Number of parallel OCR workers (4 is safe for most laptops).
+indexer_ocr_workers: 4
+
+# Tesseract path — set to your local install.
+# Common locations:
+#   C:\Program Files\Tesseract-OCR\tesseract.exe
+#   C:\Users\<user>\AppData\Local\Programs\Tesseract-OCR\tesseract.exe
+tesseract_path: "C:\\Users\\{{ lookup('env','USERNAME') }}\\AppData\\Local\\Programs\\Tesseract-OCR"
+
+# ── Searches/config.ps1 values ────────────────────────────────────────────────
+# "MCP" or "Local" — set to Local for a standalone workstation.
+search_mode: "Local"
+
+# MCP server URL (only used when search_mode = MCP).
+mcp_server_url: "http://192.168.1.29:8000"
+
+# Jira primary source for Local mode: "mysql" | "csv" | "sql"
+jira_primary_source: "csv"

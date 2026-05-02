@@ -1,0 +1,16 @@
+[Unit]
+Description=vpoRAG MCP Server
+After=network.target
+
+[Service]
+User={{ vporag_user }}
+WorkingDirectory={{ srv_dir }}/mcp_server
+ExecStart={{ venv_path }}/bin/python server.py
+Restart=on-failure
+RestartSec=5
+
+# Credentials and settings loaded from EnvironmentFile — safe for special characters in passwords
+EnvironmentFile=/etc/vporag/mcp.env
+
+[Install]
+WantedBy=multi-user.target

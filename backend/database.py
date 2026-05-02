@@ -88,6 +88,24 @@ CREATE TABLE IF NOT EXISTS library_tasks (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    FOREIGN KEY (session_id) REFERENCES chat_sessions(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_event ON activity_log(event);
@@ -95,6 +113,9 @@ CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_perf_ts ON chat_perf_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_library_user ON library_tasks(user_id);
 CREATE INDEX IF NOT EXISTS idx_library_status ON library_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_created ON chat_sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
 """
 
 
@@ -170,6 +191,31 @@ def _migrate(conn: sqlite3.Connection) -> None:
         lib_cols = {row[1] for row in conn.execute("PRAGMA table_info(library_tasks)")}
         if "notify_email" not in lib_cols:
             conn.execute("ALTER TABLE library_tasks ADD COLUMN notify_email TEXT")
+    if "chat_sessions" not in existing:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                title TEXT,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_chat_sessions_created ON chat_sessions(created_at);
+        """)
+    if "chat_messages" not in existing:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                FOREIGN KEY (session_id) REFERENCES chat_sessions(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
+        """)
 
 
 async def get_db() -> aiosqlite.Connection:

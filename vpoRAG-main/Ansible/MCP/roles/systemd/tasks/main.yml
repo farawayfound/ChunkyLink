@@ -1,0 +1,33 @@
+---
+- name: Create /etc/vporag directory for EnvironmentFile
+  ansible.builtin.file:
+    path: /etc/vporag
+    state: directory
+    owner: root
+    group: "{{ vporag_group }}"
+    mode: "0750"
+
+- name: Render /etc/vporag/mcp.env (credentials + settings, root-owned, group-readable)
+  ansible.builtin.template:
+    src: mcp.env.j2
+    dest: /etc/vporag/mcp.env
+    owner: root
+    group: "{{ vporag_group }}"
+    mode: "0640"
+  notify: restart mcp server
+
+- name: Install vporag-mcp systemd unit
+  ansible.builtin.template:
+    src: vporag-mcp.service.j2
+    dest: /etc/systemd/system/vporag-mcp.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Enable and start vporag-mcp service
+  ansible.builtin.systemd:
+    name: vporag-mcp
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,0 +1,58 @@
+<div id="events-tab" class="tab-content">
+    <div class="panel">
+        <div class="filter-bar">
+            <label class="filter-label">Events per page:
+                <select id="page-size" onchange="_evPage=1; renderEventPage()">
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                    <option value="150">150</option>
+                    <option value="200">200</option>
+                </select>
+            </label>
+            <span id="event-count" class="muted"></span>
+        </div>
+        <div id="event-table-wrap">
+            <table class="data-table" id="event-table">
+                <thead>
+                    <tr>
+                        <th data-sort-key="timestamp">Timestamp</th>
+                        <th>
+                            Event
+                            <div class="ev-dropdown">
+                                <button class="ev-dropdown-btn" id="ev-filter-btn" onclick="toggleEvDropdown(event)">
+                                    All <span id="ev-filter-count"></span> ▾
+                                </button>
+                                <div class="ev-dropdown-panel" id="ev-dropdown-panel">
+                                    <label><input type="checkbox" value="search_kb" checked onchange="updateEvBtn();loadEvents()"> search_kb</label>
+                                    <label><input type="checkbox" value="search_jira" checked onchange="updateEvBtn();loadEvents()"> search_jira</label>
+                                    <label><input type="checkbox" value="build_index" checked onchange="updateEvBtn();loadEvents()"> build_index</label>
+                                    <label><input type="checkbox" value="learn" checked onchange="updateEvBtn();loadEvents()"> learn</label>
+                                    <label><input type="checkbox" value="request_start" onchange="updateEvBtn();loadEvents()"> request_start</label>
+                                    <label><input type="checkbox" value="request_end" onchange="updateEvBtn();loadEvents()"> request_end</label>
+                                    <label><input type="checkbox" value="tool_error" checked onchange="updateEvBtn();loadEvents()"> tool_error</label>
+                                    <label><input type="checkbox" value="search_kb_warning" checked onchange="updateEvBtn();loadEvents()"> search_kb_warning</label>
+                                    <label><input type="checkbox" value="search_jira_warning" checked onchange="updateEvBtn();loadEvents()"> search_jira_warning</label>
+                                    <label><input type="checkbox" value="user_registered" checked onchange="updateEvBtn();loadEvents()"> user_registered</label>
+                                </div>
+                            </div>
+                        </th>
+                        <th data-sort-key="client_ip">Client IP</th>
+                        <th>
+                            User
+                            <input type="text" id="col-filter-client" class="col-filter" placeholder="Filter user..." oninput="loadEvents()">
+                        </th>
+                        <th data-sort-key="terms">Terms / Details
+                            <input type="text" id="col-filter-terms" class="col-filter" placeholder="Filter terms..." oninput="loadEvents()">
+                        </th>
+                        <th data-sort-key="result">Result</th>
+                        <th data-sort-key="duration_ms">Duration</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="event-tbody"></tbody>
+            </table>
+        </div>
+        <div class="pagination" id="event-pagination"></div>
+    </div>
+</div>

@@ -1,0 +1,12 @@
+---
+- name: Render indexers/config.py
+  ansible.builtin.template:
+    src: indexer_config.py.j2
+    dest: "{{ repo_root }}\\indexers\\config.py"
+  tags: config
+
+- name: Render Searches/config.ps1
+  ansible.builtin.template:
+    src: searches_config.ps1.j2
+    dest: "{{ repo_root }}\\Searches\\config.ps1"
+  tags: config

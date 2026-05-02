@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vpoRAG Control Panel</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 vpoRAG Control Panel</h1>
+            <div class="stats-bar">
+                <span id="file-count">Files: --</span>
+                <span id="chunk-count">Chunks: --</span>
+                <span id="last-build">Last Build: --</span>
+            </div>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab-btn active" onclick="showTab('index')">📦 Index Builder</button>
+            <button class="tab-btn" onclick="showTab('settings')">⚙️ Settings</button>
+            <button class="tab-btn" onclick="showTab('logs')">📋 Logs</button>
+        </nav>
+
+        <!-- Index Builder Tab -->
+        <div id="index-tab" class="tab-content active">
+            <div class="panel">
+                <h2>Index Management</h2>
+                <div class="config-display">
+                    <div class="config-row">
+                        <label>Source Directory:</label>
+                        <input type="text" id="src-dir" readonly>
+                    </div>
+                    <div class="config-row">
+                        <label>Output Directory:</label>
+                        <input type="text" id="out-dir" readonly>
+                    </div>
+                </div>
+
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="buildIndex()" title="Incremental build: Processes new/modified files with full bidirectional cross-references (A↔B)">▶️ Build Index</button>
+                    <button class="btn btn-warning" onclick="rebuildAll()" title="Full rebuild: Deletes processing state and reprocesses all documents from scratch">🔄 Rebuild All</button>
+                    <button class="btn btn-info" onclick="buildIncremental()" title="Fast indexing: Processes new/modified files without building cross-references (use for quick updates)">⚡ Index Only</button>
+                    <button class="btn btn-info" onclick="buildCrossRefsIncremental()" title="⚠️ Incremental cross-refs: Only creates backward references (existing→new). NOT bidirectional. Use 'Build Index' for full bidirectional links.">🔗 Cross-Refs Only</button>
+                    <button class="btn btn-secondary" onclick="refreshStats()" title="Refresh statistics: Reload file counts, chunk counts, category breakdown, and last build time">📊 Refresh Stats</button>
+                </div>
+
+                <div class="category-stats" id="category-stats"></div>
+
+                <div class="log-container">
+                    <h3>Build Output</h3>
+                    <div id="build-logs" class="logs"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings-tab" class="tab-content">
+            <div class="panel">
+                <h2>Configuration Editor</h2>
+                <p class="info">Edit configuration values - Changes take effect on next build</p>
+                <div id="config-editor"></div>
+                <button class="btn btn-primary" onclick="saveConfig()" title="Save changes to indexers/config.py (takes effect on next build)">💾 Save Configuration</button>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="logs-tab" class="tab-content">
+            <div class="panel">
+                <h2>Build Logs</h2>
+                <button class="btn btn-secondary" onclick="loadLogs()" title="Reload last 500 lines from build_index.log">🔄 Refresh Logs</button>
+                <div id="full-logs" class="logs"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>

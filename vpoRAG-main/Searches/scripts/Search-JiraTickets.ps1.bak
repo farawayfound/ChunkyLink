@@ -1,0 +1,65 @@
+﻿param(
+    [Parameter(Mandatory=$true)]
+    [string[]]$Terms,
+    [string[]]$DiscoveredTerms = @()
+)
+
+function Get-Synonyms {
+    param([string]$term)
+    $synonymMap = @{
+        'error'     = @('error','fail','issue','problem','broken')
+        'fail'      = @('error','fail','issue','problem','broken')
+        'issue'     = @('error','fail','issue','problem','broken')
+        'problem'   = @('error','fail','issue','problem','broken')
+        'broken'    = @('error','fail','issue','problem','broken')
+        'freeze'    = @('freeze','hang','stuck','unresponsive','lock')
+        'hang'      = @('freeze','hang','stuck','unresponsive','lock')
+        'stuck'     = @('freeze','hang','stuck','unresponsive','lock')
+        'restart'   = @('restart','reboot','bounce','cycle')
+        'reboot'    = @('restart','reboot','bounce','cycle')
+        'playback'  = @('playback','play','watch','view','stream')
+        'play'      = @('playback','play','watch','view','stream')
+        'recording' = @('recording','record','dvr','schedule')
+        'record'    = @('recording','record','dvr','schedule')
+        'fix'       = @('fix','resolve','repair','correct','mitigate')
+        'resolve'   = @('fix','resolve','repair','correct','mitigate')
+    }
+    $lower = $term.ToLower()
+    if ($synonymMap.ContainsKey($lower)) { return $synonymMap[$lower] }
+    return @($term)
+}
+
+$pyScript = Join-Path $PSScriptRoot "..\indexers\connectors\jira_query.py"
+
+$expandedTerms = ($Terms | ForEach-Object { Get-Synonyms $_ } | Select-Object -Unique) | Select-Object -First 5
+
+Write-Host "`n=== JIRA TICKET SEARCH ===" -ForegroundColor Cyan
+Write-Host "Terms (expanded): $($expandedTerms -join ', ')" -ForegroundColor Yellow
+if ($DiscoveredTerms.Count -gt 0) {
+    Write-Host "Discovered terms: $($DiscoveredTerms -join ', ')" -ForegroundColor Magenta
+}
+
+$pyArgs = @($expandedTerms)
+if ($DiscoveredTerms.Count -gt 0) {
+    $pyArgs += "--discovered"
+    $pyArgs += ($DiscoveredTerms | Select-Object -First 5)
+}
+
+$result = python $pyScript $pyArgs 2>&1
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Jira query failed: $result" -ForegroundColor Red
+    return
+}
+
+$parsed = $result | ConvertFrom-Json
+
+$pass1Count = [Math]::Min($parsed.dpstriage.Count, 10) + [Math]::Min($parsed.postrca.Count, 5)
+Write-Host "Pass 1 â€” DPSTRIAGE: $([Math]::Min($parsed.dpstriage.Count,10)) | POSTRCA: $([Math]::Min($parsed.postrca.Count,5))" -ForegroundColor Green
+if ($DiscoveredTerms.Count -gt 0) {
+    Write-Host "Pass 2 â€” DPSTRIAGE: $([Math]::Max(0,$parsed.dpstriage.Count-10)) | POSTRCA: $([Math]::Max(0,$parsed.postrca.Count-5))" -ForegroundColor Green
+}
+Write-Host "Total: $($parsed.dpstriage.Count + $parsed.postrca.Count)" -ForegroundColor Green
+
+$parsed | ConvertTo-Json -Depth 5
+

@@ -1,0 +1,14 @@
+[Unit]
+Description=vpoRAG MCP Dashboard
+After=network.target vporag-mcp.service
+
+[Service]
+User=vporag
+WorkingDirectory=/srv/vpo_rag/UI/MCPdashboard
+EnvironmentFile=/etc/vporag/mcp.env
+ExecStart=/srv/vpo_rag/venv/bin/python remote/run.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,88 @@
+<div id="jiradb-tab" class="tab-content">
+    <div class="panel">
+        <div class="chart-header">
+            <h3>MySQL — CSV Ingest History</h3>
+            <div class="filter-bar" style="margin:0">
+                <label class="filter-label">Rows per page:
+                    <select id="jiradb-page-size" onchange="_jiradbPager.setPageSize(+this.value)">
+                        <option value="10" selected>10</option>
+                        <option value="20">20</option>
+                        <option value="30">30</option>
+                        <option value="50">50</option>
+                    </select>
+                </label>
+                <span id="jiradb-count" class="muted"></span>
+            </div>
+        </div>
+        <div id="jiradb-toolbar"></div>
+        <table class="data-table" id="jiradb-table">
+            <thead>
+                <tr>
+                    <th data-sort-key="timestamp">Timestamp</th>
+                    <th data-sort-key="table">Table</th>
+                    <th data-sort-key="status">Status</th>
+                    <th data-sort-key="rows_updated">Rows Updated</th>
+                    <th data-sort-key="rows_inserted">Rows Inserted</th>
+                    <th data-sort-key="total_rows">Total Rows</th>
+                    <th data-sort-key="filename">Filename</th>
+                </tr>
+            </thead>
+            <tbody id="jiradb-tbody"></tbody>
+        </table>
+        <div class="pagination" id="jiradb-pagination"></div>
+    </div>
+
+    <div class="grid-2">
+        <div class="panel">
+            <div class="chart-header">
+                <h3>DPSTRIAGE — CSV Files on Server</h3>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <a class="btn btn-sm btn-ghost" href="https://jira.charter.com/issues/?filter=441398" target="_blank" rel="noopener">&#x1F4E4; Export</a>
+                    <label class="btn btn-sm" style="cursor:pointer;margin:0">
+                        &#x2B06; Upload
+                        <input type="file" id="dps-upload-input" accept=".csv" style="display:none" onchange="uploadJiraCsv('dpstriage', this)">
+                    </label>
+                </div>
+            </div>
+            <div id="dps-upload-status" style="font-size:12px;min-height:18px;margin-bottom:8px"></div>
+            <table class="data-table" id="dps-csv-table">
+                <thead><tr><th>Filename</th><th style="text-align:right">Size</th><th>Modified</th><th></th></tr></thead>
+                <tbody id="dps-csv-tbody"></tbody>
+            </table>
+        </div>
+        <div class="panel">
+            <div class="chart-header">
+                <h3>POSTRCA — CSV Files on Server</h3>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <a class="btn btn-sm btn-ghost" href="https://jira.charter.com/issues/?filter=440717" target="_blank" rel="noopener">&#x1F4E4; Export</a>
+                    <label class="btn btn-sm" style="cursor:pointer;margin:0">
+                        &#x2B06; Upload
+                        <input type="file" id="rca-upload-input" accept=".csv" style="display:none" onchange="uploadJiraCsv('postrca', this)">
+                    </label>
+                </div>
+            </div>
+            <div id="rca-upload-status" style="font-size:12px;min-height:18px;margin-bottom:8px"></div>
+            <table class="data-table" id="rca-csv-table">
+                <thead><tr><th>Filename</th><th style="text-align:right">Size</th><th>Modified</th><th></th></tr></thead>
+                <tbody id="rca-csv-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Ingest output modal -->
+    <div id="ingest-modal" class="modal-overlay" style="display:none">
+        <div class="modal modal-wide">
+            <h3 id="ingest-modal-title">Ingest Result</h3>
+            <pre id="ingest-modal-output" class="ev-detail-pre" style="max-height:400px;overflow-y:auto"></pre>
+            <div class="modal-actions">
+                <button class="btn btn-sm btn-ghost" onclick="closeModal('ingest-modal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="chart-header"><h3>Download Full Database</h3></div>
+        <p class="muted" style="font-size:12px;margin-bottom:12px">Exports both DPSTRIAGE and POSTRCA tables from MySQL into a single SQLite .db file compatible with Search-JiraTickets.ps1.</p>
+        <a class="btn btn-sm" href="/api/jira/db-download" download>&#x2B07; Download jira_local.db</a>
+    </div>
+</div>

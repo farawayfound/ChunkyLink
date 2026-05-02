@@ -1,0 +1,79 @@
+# ── Server identity ───────────────────────────────────────────────────────────
+vporag_user: vporag
+vporag_group: vporag
+srv_dir: /srv/vpo_rag
+
+# ── Python / venv ─────────────────────────────────────────────────────────────
+python_bin: /usr/bin/python3
+venv_path: "{{ srv_dir }}/venv"
+# spaCy 3.7.2 is incompatible with Python 3.12 (ABI mismatch hit in chat).
+# 3.8.x ships Python-3.12-compatible wheels.
+spacy_version: "3.8.4"
+spacy_model: en_core_web_md
+
+# ── ODBC ──────────────────────────────────────────────────────────────────────
+# Ubuntu 24.04 only ships msodbcsql18 — msodbcsql17 unavailable (found in chat).
+# Searches/config.py driver name must match this value.
+odbc_package: msodbcsql18
+odbc_driver_name: "ODBC Driver 18 for SQL Server"
+
+# ── Directory layout ──────────────────────────────────────────────────────────
+data_dirs:
+  - "{{ srv_dir }}/indexers"
+  - "{{ srv_dir }}/JSON/detail"
+  - "{{ srv_dir }}/JSON/router"
+  - "{{ srv_dir }}/JSON/logs"
+  - "{{ srv_dir }}/JSON/state"
+  - "{{ srv_dir }}/JSON/manifests"
+  - "{{ srv_dir }}/mcp_server/data/JiraCSVexport/current"
+  - "{{ srv_dir }}/mcp_server/data/JiraCSVexport/archive"
+  - "{{ srv_dir }}/source_docs"
+
+# ── Indexer config values (written to indexers/config.py on the server) ───────
+indexer_src_dir: "{{ srv_dir }}/source_docs"
+indexer_out_dir: "{{ srv_dir }}/JSON"
+# OCR workers — set to half the server's logical CPU count for good throughput.
+# The Xeon has 16 cores; 8 workers keeps the other 8 free for the main indexer loop.
+indexer_ocr_workers: 8
+
+# ── Jira CSV directories (Samba share — actual paths used by ingest scripts) ──
+dpstriage_csv_dir: /srv/samba/share/dpstriageCSV
+postrca_csv_dir:   /srv/samba/share/postrcaCSV
+
+# ── MCP server ────────────────────────────────────────────────────────────────
+mcp_port: 8000
+# Per-user bearer tokens: token -> display name. Set real values via secrets.yml.
+# REQUIRE_AUTH: false = log anonymous but allow; true = block with 401.
+auth_tokens: {}
+require_auth: false
+
+# ── Jira SQL connection ────────────────────────────────────────────────────────
+jira_sql_server: "VM0PWVPTSPL000"
+jira_sql_database: "VIDPROD_MAIN"
+# odbc_driver_name is already set in the ODBC section above
+
+# ── MySQL (local Jira ticket store) ──────────────────────────────────────────
+mysql_db:   vporag_jira
+mysql_user: vporag
+# mysql_pass: set via secrets.yml (never commit plaintext)
+
+# ── Jira source strategy ──────────────────────────────────────────────────────
+# Default: mysql — local DB always reachable.
+# Set jira_primary_source: "sql" only when connected to Charter VPN.
+# Mirrors $JIRA_PRIMARY_SOURCE / $JIRA_SEARCH_BOTH_SOURCES in Searches/config.ps1
+jira_primary_source: "mysql"     # "mysql" | "sql" | "csv"
+jira_search_both_sources: false  # true = merge primary + CSV results
+
+# ── MCP output cap ────────────────────────────────────────────────────────────
+# Amazon Q enforces a 100K character limit on MCP tool output.
+# Measured worst-case: 66,609 chars at 15 chunks; 20 chunks ≈ 96,759 chars worst-case.
+mcp_max_results: 20
+
+# ── Jira credentials (injected as systemd env vars, not stored in keyring) ────
+# Avoids the Linux keyring / D-Bus headless issue noted in the plan.
+# Pass via: ansible-playbook ... -e @secrets.yml
+jira_user: ""
+jira_pass: ""
+
+# ── sudo password for vpomac (pass via --extra-vars or Vault) ─────────────────
+# sudo_password: "vpomac007"   # DO NOT commit plaintext

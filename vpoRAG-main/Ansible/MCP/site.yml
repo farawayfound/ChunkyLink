@@ -1,0 +1,25 @@
+---
+# vpoRAG MCP Server — full deployment playbook
+# Prerequisites (run once from Windows before this playbook):
+#   powershell -File Ansible/MCP/setup_ssh_key.ps1
+#
+# Run:
+#   ansible-playbook -i inventory.ini site.yml -e sudo_password=vpomac007 -e @secrets.yml
+#
+# secrets.yml (Vault-encrypted, never committed plaintext):
+#   sudo_password: vpomac007
+#   mcp_auth_token: <real-token>
+#   jira_user: <user>
+#   jira_pass: <pass>
+
+- name: Deploy vpoRAG MCP Server
+  hosts: mcp_server
+  gather_facts: true
+  roles:
+    - base          # system packages, service user, /srv/vpo_rag
+    - odbc          # Microsoft ODBC Driver 18 (Ubuntu 24.04 compatible)
+    - directories   # all data/output directory tree
+    - python_env    # venv, requirements, spaCy 3.8 + model
+    - mysql         # MySQL server, vporag_jira DB + schema
+    - systemd       # vporag-mcp.service unit + enable/start
+    - deploy        # copy mcp_server/ app files, restart service

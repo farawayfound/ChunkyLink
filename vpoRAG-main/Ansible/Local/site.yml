@@ -1,0 +1,22 @@
+---
+# vpoRAG Local Setup
+#
+# NOTE: Ansible cannot run on native Windows Python (requires Unix fcntl module).
+# Use setup_local.py instead — it performs the same steps natively:
+#
+#   python Ansible\Local\setup_local.py --repo-root C:\path\to\vpo_rag
+#
+# If running from WSL:
+#   ansible-playbook -i inventory.ini site.yml -e "repo_root=/mnt/c/path/to/vpo_rag"
+#
+# Steps performed (setup_local.py or this playbook):
+#   1. venv  — create .venv, install requirements.txt, upgrade pip
+#   2. spacy — download en_core_web_md model into venv
+#   3. config — render indexers/config.py and Searches/config.ps1
+
+- name: Set up vpoRAG on local machine
+  hosts: local
+  gather_facts: false
+  roles:
+    - venv    # create .venv, install requirements.txt, download spaCy model
+    - config  # render indexers/config.py and Searches/config.ps1

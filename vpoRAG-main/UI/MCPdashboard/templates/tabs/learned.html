@@ -1,0 +1,124 @@
+<div id="learned-tab" class="tab-content">
+    <div class="grid-2">
+        <div class="panel">
+            <div class="chart-header"><h3>Chunks Added per Day</h3></div>
+            <canvas id="chart-learned-daily"></canvas>
+        </div>
+        <div class="panel">
+            <h3>Overview</h3>
+            <div id="learned-overview"></div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="chart-header">
+            <h3>Learned Chunks</h3>
+            <div class="filter-bar" style="margin:0">
+                <label class="filter-label">Rows per page:
+                    <select id="learned-page-size" onchange="_learnedPerPage=+this.value;_learnedPage=1;loadLearnedChunks()">
+                        <option value="10" selected>10</option>
+                        <option value="20">20</option>
+                        <option value="30">30</option>
+                        <option value="50">50</option>
+                    </select>
+                </label>
+                <span id="learned-chunk-count" class="muted"></span>
+            </div>
+        </div>
+        <div id="learned-toolbar"></div>
+        <table class="data-table" id="learned-table">
+            <thead>
+                <tr>
+                    <th data-sort-key="session_ts">Timestamp</th>
+                    <th data-sort-key="user_id">User</th>
+                    <th data-sort-key="ticket_key">Ticket</th>
+                    <th data-sort-key="category">Category</th>
+                    <th data-sort-key="title">Title</th>
+                    <th data-sort-key="preview">Preview</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="learned-tbody"></tbody>
+        </table>
+        <div class="pagination" id="learned-pagination"></div>
+    </div>
+
+    <!-- Inline edit panel -->
+    <div class="panel" id="edit-inline-panel" style="display:none">
+        <div class="chart-header">
+            <h3>Edit Learned Chunk</h3>
+            <button class="btn btn-sm btn-ghost" onclick="closeInlineEdit()">&#x2715; Close</button>
+        </div>
+        <input type="hidden" id="edit-chunk-id">
+        <label class="field-label">Title
+            <input type="text" id="edit-title" class="field-input">
+        </label>
+        <label class="field-label">Tags (comma-separated)
+            <input type="text" id="edit-tags" class="field-input">
+        </label>
+        <label class="field-label">Text
+            <textarea id="edit-text" class="field-textarea" rows="8"></textarea>
+        </label>
+        <div class="modal-actions" style="margin-top:12px">
+            <button class="btn" onclick="submitEdit()">Save</button>
+            <button class="btn btn-sm btn-ghost" onclick="closeInlineEdit()">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Inline delete confirmation panel -->
+    <div class="panel" id="delete-inline-panel" style="display:none">
+        <div class="chart-header">
+            <h3>&#x1F5D1;&#xFE0F; Confirm Delete</h3>
+            <button class="btn btn-sm btn-ghost" onclick="closeInlineDelete()">&#x2715; Close</button>
+        </div>
+        <p id="delete-inline-msg" style="margin:12px 0"></p>
+        <div class="modal-actions">
+            <button class="btn btn-danger" onclick="executeDeleteChunk()">Delete</button>
+            <button class="btn btn-sm btn-ghost" onclick="closeInlineDelete()">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Version history -->
+    <div class="panel" id="learned-history-panel">
+        <div class="chart-header">
+            <h3>Version History</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+                <label class="filter-label">Rows per page:
+                    <select id="history-page-size" onchange="_historyPager.setPageSize(+this.value)">
+                        <option value="10" selected>10</option>
+                        <option value="20">20</option>
+                        <option value="30">30</option>
+                        <option value="50">50</option>
+                    </select>
+                </label>
+                <span id="learned-history-count" class="muted"></span>
+                <button class="btn btn-sm btn-ghost" id="btn-restore-latest"
+                    onclick="learnedRollback('forward_to_latest','')"
+                    style="display:none">&#x2191; Restore to Latest</button>
+                <button class="btn btn-sm btn-ghost" onclick="toggleHistoryPanel()">&#x25BE; Toggle</button>
+            </div>
+        </div>
+        <div id="learned-history-body">
+            <table class="data-table" id="learned-history-table">
+                <thead>
+                    <tr><th>Commit</th><th>Timestamp</th><th>Message</th><th style="min-width:180px"></th></tr>
+                </thead>
+                <tbody id="learned-history-tbody"></tbody>
+            </table>
+            <div class="pagination" id="learned-history-pagination"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Rollback confirmation modal (outside tab div — global) -->
+<div id="rollback-modal" class="modal-overlay" style="display:none">
+    <div class="modal">
+        <h3>⚠️ Confirm Rollback</h3>
+        <p id="rollback-modal-msg"></p>
+        <p class="muted">This is non-destructive — you can restore to latest at any time.</p>
+        <div class="modal-actions">
+            <button class="btn btn-danger" id="rollback-confirm-btn">Confirm</button>
+            <button class="btn btn-sm btn-ghost" onclick="closeModal('rollback-modal')">Cancel</button>
+        </div>
+    </div>
+</div>

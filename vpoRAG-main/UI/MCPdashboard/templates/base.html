@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vpoRAG MCP Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <h1>⚡ vpoRAG MCP Dashboard</h1>
+                <span id="server-status" class="status-badge status-unknown">Checking...</span>
+            </div>
+            <div class="header-right">
+                <span id="last-activity" class="muted">Last activity: --</span>
+                <button class="btn btn-sm" onclick="refreshAll()">↻ Refresh</button>
+            </div>
+        </header>
+
+        <div class="kpi-bar">
+            <div class="kpi">
+                <div class="kpi-value" id="kpi-total">--</div>
+                <div class="kpi-label">Total Calls</div>
+            </div>
+            <div class="kpi">
+                <div class="kpi-value" id="kpi-kb">--</div>
+                <div class="kpi-label">KB Searches</div>
+            </div>
+            <div class="kpi">
+                <div class="kpi-value" id="kpi-jira">--</div>
+                <div class="kpi-label">Jira Searches</div>
+            </div>
+            <div class="kpi">
+                <div class="kpi-value" id="kpi-build">--</div>
+                <div class="kpi-label">Index Builds</div>
+            </div>
+            <div class="kpi">
+                <div class="kpi-value" id="kpi-learn">--</div>
+                <div class="kpi-label">Learned</div>
+            </div>
+            <div class="kpi kpi-warn">
+                <div class="kpi-value" id="kpi-errors">--</div>
+                <div class="kpi-label">Errors</div>
+            </div>
+            <div class="kpi">
+                <div class="kpi-value" id="kpi-avg-chunks">--</div>
+                <div class="kpi-label">Avg Chunks</div>
+            </div>
+        </div>
+
+        <nav class="tabs">
+            <button class="tab-btn active" onclick="showTab('overview', this)">📊 Overview</button>
+            <button class="tab-btn" onclick="showTab('events', this)">📋 Event Log</button>
+            <button class="tab-btn" onclick="showTab('errors', this)">⚠️ Errors</button>
+            <button class="tab-btn" onclick="showTab('jiradb', this)">🗄️ Jira Database</button>
+            <button class="tab-btn" onclick="showTab('jsonindex', this)">📦 JSON Index</button>
+            <button class="tab-btn" onclick="showTab('learned', this)">🧠 Learned KB</button>
+        </nav>
+
+        {% block content %}{% endblock %}
+
+    </div><!-- /.container -->
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="/static/modules/pager.js?v=28"></script>
+    <script src="/static/modules/overview.js?v=28"></script>
+    <script src="/static/modules/events.js?v=28"></script>
+    <script src="/static/modules/errors.js?v=28"></script>
+    <script src="/static/modules/jiradb.js?v=28"></script>
+    <script src="/static/modules/jsonindex.js?v=28"></script>
+    <script src="/static/modules/learned.js?v=28"></script>
+    <script src="/static/app.js?v=28"></script>
+</body>
+</html>

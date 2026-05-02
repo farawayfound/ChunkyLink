@@ -1,0 +1,37 @@
+<div id="overview-tab" class="tab-content active">
+    <div class="grid-2">
+        <div class="panel">
+            <div class="chart-header">
+                <h3>Calls per Day</h3>
+                <div class="chart-controls">
+                    <span id="range-label" class="range-label"></span>
+                    <button class="btn btn-sm btn-ghost" onclick="resetDateRange()" title="Reset to full 30-day view">↺ Reset</button>
+                </div>
+            </div>
+            <p class="chart-hint muted">Click a point to filter by day · Click &amp; drag to select a range</p>
+            <canvas id="chart-daily"></canvas>
+        </div>
+        <div class="panel">
+            <h3>Tool Distribution</h3>
+            <canvas id="chart-tools"></canvas>
+        </div>
+    </div>
+    <div class="grid-3">
+        <div class="panel">
+            <h3>Search Level Distribution</h3>
+            <div id="level-dist"></div>
+        </div>
+        <div class="panel">
+            <h3>Jira Source</h3>
+            <div id="jira-sources"></div>
+        </div>
+        <div class="panel">
+            <h3>Avg Duration (ms)</h3>
+            <div id="avg-durations"></div>
+        </div>
+    </div>
+    <div class="panel">
+        <h3>Calls by Client IP</h3>
+        <div id="client-table"></div>
+    </div>
+</div>

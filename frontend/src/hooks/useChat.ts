@@ -24,6 +24,7 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [phase, setPhase] = useState<ChatPhase>("idle");
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
@@ -61,6 +62,9 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
             role: m.role,
             content: m.content,
           }));
+          if (sessionId) {
+            body.session_id = sessionId;
+          }
         }
 
         let answering = false;
@@ -182,5 +186,17 @@ export function useChat(endpoint: "/chat/ask" | "/chat/documents" = "/chat/ask")
     setStreaming(false);
   }, []);
 
-  return { messages, streaming, phase, send, clear };
+  const loadSession = useCallback((sessionMessages: ChatMessage[], sessionId: string) => {
+    setMessages(sessionMessages);
+    setSessionId(sessionId);
+  }, []);
+
+  const newSession = useCallback((id: string) => {
+    setSessionId(id);
+    setMessages([]);
+    setPhase("idle");
+    setStreaming(false);
+  }, []);
+
+  return { messages, streaming, phase, sessionId, send, clear, loadSession, newSession };
 }

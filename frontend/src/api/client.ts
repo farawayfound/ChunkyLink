@@ -308,6 +308,24 @@ export async function* streamWorkerOllamaPull(name: string): AsyncGenerator<any>
 // Chat — Suggestions
 export const getChatSuggestions = () => request<{ suggestions: string[] }>("/chat/suggestions");
 
+// Chat — Sessions
+export const createChatSession = () =>
+  request<{ session_id: string }>("/chat/sessions", { method: "POST", body: JSON.stringify({}) });
+
+export const listChatSessions = () =>
+  request<{ sessions: Array<{ id: string; title: string | null; created_at: string; updated_at: string }> }>(
+    "/chat/sessions",
+  );
+
+export const getChatSession = (sessionId: string) =>
+  request<{
+    session: { id: string; title: string | null; created_at: string; updated_at: string };
+    messages: Array<{ id: string; role: string; content: string; created_at: string }>;
+  }>(`/chat/sessions/${encodeURIComponent(sessionId)}`);
+
+export const deleteChatSession = (sessionId: string) =>
+  request<{ success: boolean }>(`/chat/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+
 // Admin — Demo KB
 export const getDemoDocuments = () => request<any>("/admin/demo/documents");
 export const deleteDemoDocument = (filename: string) =>

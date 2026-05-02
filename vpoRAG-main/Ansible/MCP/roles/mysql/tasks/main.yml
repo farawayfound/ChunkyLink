@@ -1,0 +1,49 @@
+---
+- name: Install MySQL server and Python connector
+  ansible.builtin.apt:
+    name:
+      - mysql-server
+      - python3-pymysql
+    state: present
+    update_cache: true
+
+- name: Ensure MySQL is started and enabled
+  ansible.builtin.systemd:
+    name: mysql
+    state: started
+    enabled: true
+
+- name: Create vporag_jira database
+  community.mysql.mysql_db:
+    name: "{{ mysql_db }}"
+    state: present
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+
+- name: Create vporag MySQL user
+  community.mysql.mysql_user:
+    name: "{{ mysql_user }}"
+    password: "{{ mysql_pass }}"
+    priv: "{{ mysql_db }}.*:ALL"
+    host: localhost
+    state: present
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+
+- name: Copy MySQL schema file
+  ansible.builtin.template:
+    src: schema.sql.j2
+    dest: /tmp/vporag_schema.sql
+    mode: "0600"
+
+- name: Apply schema (idempotent — CREATE TABLE IF NOT EXISTS)
+  community.mysql.mysql_db:
+    name: "{{ mysql_db }}"
+    state: import
+    target: /tmp/vporag_schema.sql
+    login_user: "{{ mysql_user }}"
+    login_password: "{{ mysql_pass }}"
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+
+- name: Remove temp schema file
+  ansible.builtin.file:
+    path: /tmp/vporag_schema.sql
+    state: absent

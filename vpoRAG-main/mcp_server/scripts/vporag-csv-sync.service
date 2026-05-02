@@ -1,0 +1,12 @@
+[Unit]
+Description=vpoRAG Jira CSV drop watcher — validate, ingest, archive
+After=network.target mysql.service
+
+[Service]
+User=vpomac
+ExecStart=/srv/vpo_rag/venv/bin/python /srv/vpo_rag/mcp_server/scripts/csv_watcher.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

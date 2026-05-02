@@ -1,0 +1,20 @@
+.env
+JSON/logs/
+JSON/detail/
+JSON/manifests/run_manifest.json
+JSON/router/*.jsonl
+JSON/state/*.json
+indexers/config.py
+Searches/config.ps1
+structuredData/database/jira_local.db
+Setup/Remote/vpomac-deploy.sudoers
+Setup/secrets.env
+mcp_server/config.py
+structuredData/JiraCSVexport/*.csv
+indexers/__pycache__/
+*.pyc
+old_rules/
+JSON/RAW/
+
+# Index size estimator temp output
+JSON/temp/

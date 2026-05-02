@@ -1,0 +1,9 @@
+---
+- name: Create all vpoRAG data directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ vporag_user }}"
+    group: "{{ vporag_group }}"
+    mode: "0755"
+  loop: "{{ data_dirs }}"

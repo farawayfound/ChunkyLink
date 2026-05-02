@@ -1,0 +1,107 @@
+<div id="jsonindex-tab" class="tab-content">
+    <div class="grid-3">
+        <div class="panel">
+            <h3>Category Files</h3>
+            <div id="index-category-table"></div>
+        </div>
+        <div class="panel">
+            <h3>Overview</h3>
+            <div id="index-overview"></div>
+        </div>
+        <div class="panel" id="build-monitor-panel">
+            <div class="chart-header">
+                <h3>Build Monitor</h3>
+                <span id="build-monitor-badge"></span>
+            </div>
+            <div id="build-monitor-body"><span class="muted">Loading...</span></div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="chart-header">
+            <h3>Build History</h3>
+            <div class="filter-bar" style="margin:0">
+                <label class="filter-label">Rows per page:
+                    <select id="build-page-size" onchange="_buildPager.setPageSize(+this.value)">
+                        <option value="10" selected>10</option>
+                        <option value="20">20</option>
+                        <option value="30">30</option>
+                        <option value="50">50</option>
+                    </select>
+                </label>
+                <span id="index-build-count" class="muted"></span>
+            </div>
+        </div>
+        <div id="build-toolbar"></div>
+        <table class="data-table" id="index-build-table">
+            <thead>
+                <tr>
+                    <th data-sort-key="timestamp">Timestamp</th>
+                    <th data-sort-key="type">Type</th>
+                    <th data-sort-key="trigger">Trigger</th>
+                    <th data-sort-key="user_id">User</th>
+                    <th data-sort-key="files_processed">Files</th>
+                    <th data-sort-key="duration_ms">Duration</th>
+                    <th data-sort-key="exit_code">Exit</th>
+                    <th data-sort-key="categories">Categories</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="index-build-tbody"></tbody>
+        </table>
+        <div class="pagination" id="build-pagination"></div>
+    </div>
+
+    <div class="panel">
+        <div class="chart-header">
+            <h3>Source Documents</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+                <label class="btn btn-sm" style="cursor:pointer;margin:0">
+                    &#x2B06; Upload
+                    <input type="file" id="src-upload-input" multiple accept=".pdf,.txt,.docx,.pptx,.csv" style="display:none" onchange="uploadSourceFiles(this)">
+                </label>
+            </div>
+        </div>
+        <div id="src-upload-status" class="muted" style="margin-bottom:8px;font-size:12px"></div>
+        <div class="filter-bar">
+            <label class="filter-label">Rows per page:
+                <select id="src-page-size" onchange="_srcPager.setPageSize(+this.value)">
+                    <option value="20" selected>20</option>
+                    <option value="30">30</option>
+                    <option value="50">50</option>
+                    <option value="80">80</option>
+                </select>
+            </label>
+            <span id="src-file-count" class="muted"></span>
+        </div>
+        <div id="src-toolbar"></div>
+        <table class="data-table" id="src-file-table">
+            <thead>
+                <tr>
+                    <th data-sort-key="name">Filename</th>
+                    <th data-sort-key="size_bytes" style="text-align:right">Size</th>
+                    <th data-sort-key="modified_ts">Modified</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="src-file-tbody"></tbody>
+        </table>
+        <div class="pagination" id="src-pagination"></div>
+    </div>
+
+    <div class="panel">
+        <div class="chart-header"><h3>Trigger Index Rebuild</h3></div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="build-user-id" placeholder="Your user ID (e.g. P1234567)" class="col-filter" style="width:220px;display:inline-block">
+            <button class="btn btn-sm" onclick="triggerBuild(false)">&#x25B6; Incremental Build</button>
+            <button class="btn btn-sm btn-danger" onclick="triggerBuild(true)">&#x26A1; Full Rebuild</button>
+            <span id="build-trigger-status" class="muted" style="font-size:12px"></span>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="chart-header"><h3>Download Full Index</h3></div>
+        <p class="muted" style="font-size:12px;margin-bottom:12px">Downloads all category JSONL files as a single zip archive.</p>
+        <a class="btn btn-sm" href="/api/index/download" download>&#x2B07; Download Index ZIP</a>
+    </div>
+</div>

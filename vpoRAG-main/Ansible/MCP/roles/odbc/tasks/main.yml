@@ -1,0 +1,25 @@
+---
+- name: Add Microsoft GPG key (no TTY required — fixes chat hiccup)
+  ansible.builtin.shell: |
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+      | gpg --batch --no-tty --dearmor \
+      | tee /usr/share/keyrings/microsoft-prod.gpg > /dev/null
+  args:
+    creates: /usr/share/keyrings/microsoft-prod.gpg
+
+- name: Add Microsoft apt repository for Ubuntu 24.04
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg]
+      https://packages.microsoft.com/ubuntu/24.04/prod noble main
+    filename: mssql-release
+    state: present
+
+- name: Install msodbcsql18 (only version available on Ubuntu 24.04)
+  ansible.builtin.apt:
+    name: "{{ odbc_package }}"
+    state: present
+    update_cache: true
+  environment:
+    ACCEPT_EULA: "Y"
+    DEBIAN_FRONTEND: noninteractive

@@ -1,0 +1,42 @@
+---
+- name: Create venv owned by vporag (avoids permission error from chat)
+  ansible.builtin.command:
+    cmd: "{{ python_bin }} -m venv {{ venv_path }}"
+    creates: "{{ venv_path }}/bin/activate"
+  become_user: "{{ vporag_user }}"
+
+- name: Copy server requirements file
+  ansible.builtin.copy:
+    src: requirements.server.txt
+    dest: "{{ srv_dir }}/requirements.server.txt"
+    owner: "{{ vporag_user }}"
+    group: "{{ vporag_group }}"
+    mode: "0644"
+
+- name: Upgrade pip inside venv
+  ansible.builtin.pip:
+    name: pip
+    state: latest
+    virtualenv: "{{ venv_path }}"
+  become_user: "{{ vporag_user }}"
+
+- name: Install all Python dependencies into venv
+  ansible.builtin.pip:
+    requirements: "{{ srv_dir }}/requirements.server.txt"
+    virtualenv: "{{ venv_path }}"
+  become_user: "{{ vporag_user }}"
+
+- name: Download spaCy en_core_web_md model
+  ansible.builtin.command:
+    cmd: "{{ venv_path }}/bin/python -m spacy download {{ spacy_model }}"
+  become_user: "{{ vporag_user }}"
+  register: spacy_download
+  changed_when: "'Already up to date' not in spacy_download.stdout"
+
+- name: Write server-side indexers/config.py
+  ansible.builtin.template:
+    src: indexer_config.py.j2
+    dest: "{{ srv_dir }}/indexers/config.py"
+    owner: "{{ vporag_user }}"
+    group: "{{ vporag_group }}"
+    mode: "0640"

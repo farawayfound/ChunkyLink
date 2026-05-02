@@ -1,0 +1,50 @@
+---
+- name: Sync mcp_server application files (excludes config.py — rendered by template below)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../mcp_server/"
+    dest: "{{ srv_dir }}/mcp_server/"
+    owner: "{{ vporag_user }}"
+    group: "{{ vporag_group }}"
+    mode: "0644"
+    directory_mode: "0755"
+  notify: restart mcp server
+
+- name: Render mcp_server/config.py from template (injects paths, secrets, Jira settings)
+  ansible.builtin.template:
+    src: mcp_config.py.j2
+    dest: "{{ srv_dir }}/mcp_server/config.py"
+    owner: "{{ vporag_user }}"
+    group: "{{ vporag_group }}"
+    mode: "0640"
+  notify: restart mcp server
+
+- name: Ensure server.py is executable
+  ansible.builtin.file:
+    path: "{{ srv_dir }}/mcp_server/server.py"
+    mode: "0755"
+
+- name: Sync indexers/ directory (indexing engine)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../indexers/"
+    dest: "{{ srv_dir }}/indexers/"
+    owner: "{{ vporag_user }}"
+    group: "{{ vporag_group }}"
+    mode: "0644"
+    directory_mode: "0755"
+
+- name: Sync Searches/Connectors/ (jira_query.py used by search_jira tool)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../Searches/Connectors/"
+    dest: "{{ srv_dir }}/Searches/Connectors/"
+    owner: "{{ vporag_user }}"
+    group: "{{ vporag_group }}"
+    mode: "0644"
+    directory_mode: "0755"
+
+- name: Render indexers/config.py from template (overwrites any manually placed file)
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../roles/python_env/templates/indexer_config.py.j2"
+    dest: "{{ srv_dir }}/indexers/config.py"
+    owner: "{{ vporag_user }}"
+    group: "{{ vporag_group }}"
+    mode: "0640"
